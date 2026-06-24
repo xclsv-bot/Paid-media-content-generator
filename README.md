@@ -14,7 +14,13 @@ security enforcing org-scoping and keeping XCLSV's internal cost fields off the 
 - ✅ Video upload (editor) → direct-to-storage signed uploads
 - ✅ Video playback + master-file download (partner) via signed URLs
 - ✅ Internal cost isolated in a separate RLS-gated table
-- ⏳ Comments/approvals UI, Meta CSV import (Phase 2), live Meta API (Phase 3)
+
+**Phase 2** — Meta performance via CSV:
+- ✅ Ads Manager CSV importer with flexible header detection
+- ✅ Join to creatives by ad name + reconciliation for unmatched names
+- ✅ Per-creative performance panel + Hit? flag (CPT ≤ target)
+- ✅ Rollups by concept family / archetype / sport (ratio-of-sums CPT)
+- ⏳ Comments/approvals UI, live Meta API (Phase 3)
 
 ## Quick start
 See **[docs/SETUP.md](docs/SETUP.md)** for the full walkthrough (Supabase project,

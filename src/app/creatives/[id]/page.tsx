@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
+import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/meta/perf";
 import VideoUploader from "@/components/VideoUploader";
 import VideoAssetCard from "@/components/VideoAssetCard";
 
@@ -20,7 +21,7 @@ export default async function CreativePage({
   const { data: creative } = await supabase
     .from("creatives")
     .select(
-      "id, sheet_id, content_summary, hook_line, hook_angle, archetype, feature_pillar, sport, format, variant_differentiator, cta, status, is_proven, compliance_note, concept_families(name, compliance_note)",
+      "id, sheet_id, content_summary, hook_line, hook_angle, archetype, feature_pillar, sport, format, variant_differentiator, cta, status, is_proven, compliance_note, cpt_target_cents, concept_families(name, compliance_note)",
     )
     .eq("id", id)
     .single();
@@ -32,6 +33,12 @@ export default async function CreativePage({
     .select("id, file_name, version_label, storage_path, uploaded_at")
     .eq("creative_id", id)
     .order("uploaded_at", { ascending: false });
+
+  const { data: perf } = await supabase
+    .from("creative_performance")
+    .select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated")
+    .eq("creative_id", id)
+    .single();
 
   // Mint inline streaming URLs server-side for playback (signed, time-limited).
   const videos = await Promise.all(
@@ -82,6 +89,11 @@ export default async function CreativePage({
         <Field label="Variant" value={creative.variant_differentiator} />
       </section>
 
+      <PerformancePanel
+        perf={(perf as unknown as CreativePerf) ?? null}
+        targetCents={creative.cpt_target_cents ?? defaultTargetCents()}
+      />
+
       <section>
         <h2 className="mb-3 text-lg font-medium">Videos</h2>
         {videos.length === 0 && (
@@ -115,6 +127,70 @@ function Field({ label, value }: { label: string; value: string | null }) {
     <div className="rounded-lg border border-white/10 bg-white/5 p-3">
       <div className="text-xs text-white/40">{label}</div>
       <div className="mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function PerformancePanel({
+  perf,
+  targetCents,
+}: {
+  perf: CreativePerf | null;
+  targetCents: number | null;
+}) {
+  const hasData = perf && Number(perf.spend) > 0;
+  const cpt = perf?.cpt != null ? Number(perf.cpt) : null;
+  const hit = isHit(cpt, targetCents);
+  const usd = (n: number | null | undefined) =>
+    n == null ? "—" : `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const num = (n: number | null | undefined) =>
+    n == null ? "—" : Number(n).toLocaleString();
+
+  return (
+    <section className="mb-8">
+      <div className="mb-3 flex items-center gap-3">
+        <h2 className="text-lg font-medium">Performance</h2>
+        {hit !== null && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              hit ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
+            }`}
+          >
+            {hit ? "Hit ✓" : "Miss"}
+          </span>
+        )}
+        {perf?.last_updated && (
+          <span className="text-xs text-white/40">
+            updated {new Date(perf.last_updated).toLocaleString()}
+          </span>
+        )}
+      </div>
+      {!hasData ? (
+        <p className="text-sm text-white/40">
+          No performance data yet — import a Meta export from the Performance page.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+          <Metric label="Spend" value={usd(perf!.spend)} />
+          <Metric label="Impressions" value={num(perf!.impressions)} />
+          <Metric label="Clicks" value={num(perf!.clicks)} />
+          <Metric
+            label="CTR"
+            value={perf!.ctr == null ? "—" : `${(Number(perf!.ctr) * 100).toFixed(2)}%`}
+          />
+          <Metric label="Results" value={num(perf!.results)} />
+          <Metric label="CPT" value={usd(cpt)} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+      <div className="text-xs text-white/40">{label}</div>
+      <div className="mt-0.5 font-medium">{value}</div>
     </div>
   );
 }
