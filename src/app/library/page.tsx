@@ -41,6 +41,12 @@ export default async function LibraryPage() {
             {user ? ` · ${user.name ?? user.email} (${user.role})` : ""}
           </p>
         </div>
+        <Link
+          href="/performance"
+          className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10"
+        >
+          Performance →
+        </Link>
       </header>
 
       <div className="overflow-hidden rounded-xl border border-white/10">

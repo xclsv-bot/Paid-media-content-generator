@@ -25,6 +25,8 @@ Run the migrations in order against your project (SQL editor, or `supabase db pu
 1. `supabase/migrations/0001_init.sql` — schema, enums, RLS policies, financials split,
    new-user trigger.
 2. `supabase/migrations/0002_storage.sql` — the private `creative-videos` bucket.
+3. `supabase/migrations/0003_performance.sql` — CPT target, ad-link idempotency, and
+   the `creative_performance` rollup view.
 
 Then seed the slate from the sheet:
 - `supabase/seed.sql` — 12 concept families (with compliance notes) + 40 creatives.
@@ -77,8 +79,24 @@ Open http://localhost:3000 → redirected to `/login` → sign in → `/library`
   not per-query.
 - The storage bucket is private; all access is via signed URLs minted server-side.
 
+## Meta performance (Phase 2 — CSV import)
+1. Go to **Performance → Import Meta CSV** (staff only) or `/import`.
+2. Upload/paste an Ads Manager export. Auto-detected columns: Ad name, Ad ID, Day /
+   Reporting starts, Amount spent, Impressions, Link clicks, CTR, Results, Cost per
+   result. Override the Results column name if your trial event is custom.
+3. Rows join to creatives **by ad name**. To make that work, set each creative's
+   `ad_name` to its structured Meta name (PRD §6.3), e.g.
+   `update public.creatives set ad_name = 'XCLSV_2025_10_17_Dont_use_L5_PP' where sheet_id = '05';`
+4. Ad names that don't match are listed in the import report — pick a creative and
+   **Link**, then re-import. (Reconciliation, so rows are never silently dropped.)
+5. Set `META_CPT_TARGET` (dollars) to enable the **Hit?** flag; per-creative override
+   lives in `creatives.cpt_target_cents`.
+
+> CPT and CTR in rollups are **ratio-of-sums** (`sum(spend)/sum(results)`), not the
+> average of per-creative ratios — the correct way to aggregate.
+
 ## Not yet done (next steps)
 - Migrate the 6 existing Google Drive video links into the bucket (re-host on import).
 - Comments & approvals UI (tables + RLS already exist).
-- Meta ingestion: CSV importer (Phase 2) → live Marketing API (Phase 3).
+- Live Meta Marketing API ingestion (Phase 3) — same tables, automated source.
 - Controlled vocabularies for `hook_angle` / `feature_pillar` rollups.
