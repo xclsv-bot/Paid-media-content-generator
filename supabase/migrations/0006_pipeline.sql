@@ -3,6 +3,9 @@
 --                     hook normalization, and RLS (incl. creator scoping).
 -- See docs/CREATIVE_PIPELINE.md.
 -- ============================================================================
+-- NOTE: helper functions are defined AFTER the tables they reference, because
+-- SQL-language function bodies are validated at creation time.
+-- ============================================================================
 
 -- ---------- enums ----------
 create type cycle_status       as enum ('Planning', 'Active', 'Closed');
@@ -11,27 +14,11 @@ create type idea_status        as enum ('Backlog', 'Testing', 'Winner', 'Parked'
 create type script_source      as enum ('ai', 'human');
 create type script_status      as enum ('draft', 'approved');
 
--- ---------- helper: is the current user a content creator? ----------
-create or replace function public.is_creator()
-  returns boolean language sql stable security definer set search_path = public as
-$$ select exists (select 1 from public.users where id = auth.uid() and role = 'creator') $$;
-
--- helper: does the current user have a deliverable for this concept? (creator scope)
-create or replace function public.creator_has_concept(c_id uuid)
-  returns boolean language sql stable security definer set search_path = public as
-$$ select exists (
-     select 1 from public.deliverables d
-     where d.concept_id = c_id and d.assignee_id = auth.uid()
-   ) $$;
-revoke execute on function public.is_creator()             from anon;
-revoke execute on function public.creator_has_concept(uuid) from anon;
-
 -- ---------- hook angle lookup (FK-backed filtering) ----------
 create table public.hook_angles (
   id   uuid primary key default gen_random_uuid(),
   name text not null unique
 );
--- Seed from current distinct values so the filter works immediately.
 insert into public.hook_angles (name)
   select distinct hook_angle from public.creatives
   where hook_angle is not null and btrim(hook_angle) <> ''
@@ -45,7 +32,6 @@ update public.creatives c
   set hook_angle_id = h.id
   from public.hook_angles h
   where c.hook_angle = h.name and c.hook_angle_id is null;
--- Proven concepts seed as winners; everything else stays Backlog.
 update public.creatives set idea_status = 'Winner' where is_proven and idea_status = 'Backlog';
 
 -- ---------- cycles (the weekly drop) ----------
@@ -103,8 +89,8 @@ create table public.concept_references (
   id           uuid primary key default gen_random_uuid(),
   concept_id   uuid not null references public.creatives (id) on delete cascade,
   kind         text not null default 'link',   -- 'file' | 'link'
-  url          text not null,                   -- external url, or signed-path target
-  storage_path text,                            -- set when kind = 'file'
+  url          text not null,
+  storage_path text,
   label        text,
   uploaded_by  uuid references public.users (id),
   created_at   timestamptz not null default now()
@@ -116,6 +102,20 @@ insert into storage.buckets (id, name, public, file_size_limit)
 values ('references', 'references', false, 524288000)   -- 500 MB
 on conflict (id) do nothing;
 
+-- ---------- helper functions (defined now that their tables exist) ----------
+create or replace function public.is_creator()
+  returns boolean language sql stable security definer set search_path = public as
+$$ select exists (select 1 from public.users where id = auth.uid() and role = 'creator') $$;
+
+create or replace function public.creator_has_concept(c_id uuid)
+  returns boolean language sql stable security definer set search_path = public as
+$$ select exists (
+     select 1 from public.deliverables d
+     where d.concept_id = c_id and d.assignee_id = auth.uid()
+   ) $$;
+revoke execute on function public.is_creator()              from anon;
+revoke execute on function public.creator_has_concept(uuid) from anon;
+
 -- ============================================================================
 -- RLS
 -- ============================================================================
@@ -125,11 +125,9 @@ alter table public.deliverables       enable row level security;
 alter table public.scripts            enable row level security;
 alter table public.concept_references enable row level security;
 
--- hook_angles: any authenticated user reads; staff write.
 create policy ha_read  on public.hook_angles for select using (auth.uid() is not null);
 create policy ha_write on public.hook_angles for all using (public.is_staff()) with check (public.is_staff());
 
--- cycles: staff full; client reads its own org; creator reads cycles they have work in.
 create policy cycles_staff_all on public.cycles for all using (public.is_staff()) with check (public.is_staff());
 create policy cycles_client_read on public.cycles for select using (client_org = public.current_org());
 create policy cycles_creator_read on public.cycles for select using (
@@ -138,7 +136,6 @@ create policy cycles_creator_read on public.cycles for select using (
   )
 );
 
--- deliverables: staff full; creator reads + updates own; client reads delivered ones in its org.
 create policy deliverables_staff_all on public.deliverables for all using (public.is_staff()) with check (public.is_staff());
 create policy deliverables_creator_read on public.deliverables for select
   using (public.is_creator() and assignee_id = auth.uid());
@@ -152,21 +149,17 @@ create policy deliverables_client_read on public.deliverables for select using (
   )
 );
 
--- scripts: internal only. Staff full; creator reads scripts for concepts they're assigned.
 create policy scripts_staff_all on public.scripts for all using (public.is_staff()) with check (public.is_staff());
 create policy scripts_creator_read on public.scripts for select
   using (public.is_creator() and public.creator_has_concept(concept_id));
 
--- concept_references: internal production material. Staff full; creator reads for assigned concepts.
 create policy refs_staff_all on public.concept_references for all using (public.is_staff()) with check (public.is_staff());
 create policy refs_creator_read on public.concept_references for select
   using (public.is_creator() and public.creator_has_concept(concept_id));
 
--- Let creators read the concepts (and their videos) they're assigned to produce.
 create policy creatives_creator_read on public.creatives for select
   using (public.is_creator() and public.creator_has_concept(id));
 create policy va_creator_read on public.video_assets for select
   using (public.is_creator() and public.creator_has_concept(creative_id));
--- Creators upload videos for their assigned concepts.
 create policy va_creator_write on public.video_assets for insert
   with check (public.is_creator() and public.creator_has_concept(creative_id));
