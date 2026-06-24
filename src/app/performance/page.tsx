@@ -58,8 +58,8 @@ export default async function PerformancePage() {
     <main className="mx-auto max-w-6xl p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <Link href="/library" className="text-sm text-white/50 hover:underline">
-            ← Slate
+          <Link href="/ideas" className="text-sm text-white/50 hover:underline">
+            ← Ideas
           </Link>
           <h1 className="mt-1 text-2xl font-semibold">Performance</h1>
           <p className="text-sm text-white/50">

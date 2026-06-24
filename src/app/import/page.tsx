@@ -16,7 +16,7 @@ type CreativePick = {
 
 export default async function ImportPage() {
   const user = await getCurrentUser();
-  if (!isStaff(user)) redirect("/library");
+  if (!isStaff(user)) redirect("/ideas");
 
   const supabase = await createClient();
   const { data } = await supabase
