@@ -22,7 +22,7 @@ export default function LoginPage() {
       setError(error.message);
       return;
     }
-    router.push("/library");
+    router.push("/ideas");
     router.refresh();
   }
 
