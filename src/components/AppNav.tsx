@@ -12,6 +12,7 @@ export default async function AppNav() {
       <nav className="mx-auto flex max-w-6xl items-center gap-1 px-6 py-3 text-sm">
         <span className="mr-4 font-semibold">XCLSV</span>
         <NavLink href="/ideas">Ideas</NavLink>
+        {staff && <NavLink href="/this-week">This Week</NavLink>}
         {staff && <NavLink href="/performance">Performance</NavLink>}
         {staff && <NavLink href="/import">Import</NavLink>}
         <span className="ml-auto text-white/40">
