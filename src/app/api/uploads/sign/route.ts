@@ -4,10 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { buildStoragePath, createSignedUpload } from "@/lib/storage";
 
 // POST /api/uploads/sign  { creativeId, fileName, versionLabel? }
-// Editor-only. Returns a one-time signed upload target the browser uploads to.
+// Staff, or a creator assigned to this concept (RLS on the creative scopes it).
+// Returns a one-time signed upload target the browser uploads to.
 export async function POST(req: Request) {
   const user = await getCurrentUser();
-  if (!isStaff(user)) {
+  if (!user || (!isStaff(user) && user.role !== "creator")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
