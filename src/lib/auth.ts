@@ -4,7 +4,7 @@ export type AppUser = {
   id: string;
   email: string;
   name: string | null;
-  role: "admin" | "editor" | "client_viewer";
+  role: "admin" | "editor" | "creator" | "client_viewer";
   org: "XCLSV" | "Outlier";
 };
 

@@ -11,13 +11,16 @@ const STATUSES = [
   "Delivered",
 ];
 
-// PATCH /api/deliverables/:id  { assignee_id?, due_date?, production_status? }  — staff edit.
+// PATCH /api/deliverables/:id  { assignee_id?, due_date?, production_status? }
+// Staff edit any field. A creator may change only production_status on their own
+// deliverable (RLS enforces assignee = self).
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await getCurrentUser();
-  if (!isStaff(user)) {
+  const staff = isStaff(user);
+  if (!user || (!staff && user.role !== "creator")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -25,8 +28,10 @@ export async function PATCH(
   const body = await req.json();
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-  if ("assignee_id" in body) patch.assignee_id = body.assignee_id || null;
-  if ("due_date" in body) patch.due_date = body.due_date || null;
+  if (staff) {
+    if ("assignee_id" in body) patch.assignee_id = body.assignee_id || null;
+    if ("due_date" in body) patch.due_date = body.due_date || null;
+  }
   if ("production_status" in body) {
     if (!STATUSES.includes(body.production_status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
