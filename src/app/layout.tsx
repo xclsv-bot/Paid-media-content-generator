@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import AppNav from "@/components/AppNav";
 
 export const metadata: Metadata = {
   title: "XCLSV Creative Dashboard",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <AppNav />
+        {children}
+      </body>
     </html>
   );
 }

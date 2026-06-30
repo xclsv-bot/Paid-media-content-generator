@@ -3,10 +3,11 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 // POST /api/videos  — register a VideoAsset row AFTER the browser finished the
-// direct upload to storage. Editor-only (RLS also enforces this on insert).
+// direct upload to storage. Staff, or a creator assigned to the concept
+// (RLS on video_assets enforces the assignment on insert).
 export async function POST(req: Request) {
   const user = await getCurrentUser();
-  if (!isStaff(user)) {
+  if (!user || (!isStaff(user) && user.role !== "creator")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

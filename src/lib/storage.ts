@@ -47,3 +47,29 @@ export async function createSignedStream(path: string, expiresInSeconds = 60 * 6
   if (error) throw error;
   return data.signedUrl;
 }
+
+// ---------- references bucket (production materials: PDFs, clips, images) ----------
+const REFERENCES_BUCKET =
+  process.env.SUPABASE_REFERENCES_BUCKET || "references";
+
+export async function createSignedReferenceUpload(path: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage
+    .from(REFERENCES_BUCKET)
+    .createSignedUploadUrl(path);
+  if (error) throw error;
+  return data; // { signedUrl, token, path }
+}
+
+// Inline view URL for a stored reference file.
+export async function createSignedReferenceView(
+  path: string,
+  expiresInSeconds = 60 * 60,
+) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage
+    .from(REFERENCES_BUCKET)
+    .createSignedUrl(path, expiresInSeconds);
+  if (error) throw error;
+  return data.signedUrl;
+}
