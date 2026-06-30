@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
   // 2) Auto-link unlinked names to creatives that carry a matching ad_name.
   const unlinked = adNames.filter((n) => !linkByName.has(n));
-  const unmatched: string[] = [];
+  let unmatched: string[] = [];
   if (unlinked.length > 0) {
     const { data: creatives } = await supabase
       .from("creatives")
@@ -70,18 +70,39 @@ export async function POST(req: Request) {
         unmatched.push(name);
         continue;
       }
-      const metaAdId = adIdByName.get(name) || `name:${name}`;
-      linkByName.set(name, metaAdId);
       newLinks.push({
         creative_id: creativeId,
-        meta_ad_id: metaAdId,
+        meta_ad_id: adIdByName.get(name) || `name:${name}`,
         ad_name: name,
         ad_account_id: adAccountId,
       });
     }
+
     if (newLinks.length > 0) {
-      await supabase.from("meta_ads").insert(newLinks);
+      const { error: linkErr } = await supabase.from("meta_ads").insert(newLinks);
+      // 23505 = a concurrent import already created some of these links; that's
+      // fine, the re-select below recovers them. Any other error is real — don't
+      // pretend these names matched.
+      if (linkErr && linkErr.code !== "23505") {
+        return NextResponse.json({ error: linkErr.message }, { status: 500 });
+      }
     }
+
+    // Re-read the authoritative links for every name so insights only attach to
+    // links that actually persisted (covers rows we inserted and ones a
+    // concurrent import created). meta_ads is unique on the functional index
+    // (coalesce(ad_account_id,''), ad_name), so we reconcile by re-select rather
+    // than onConflict.
+    const { data: linksNow } = await supabase
+      .from("meta_ads")
+      .select("ad_name, meta_ad_id")
+      .in("ad_name", adNames);
+    linkByName.clear();
+    for (const a of linksNow ?? []) {
+      if (a.ad_name && a.meta_ad_id) linkByName.set(a.ad_name, a.meta_ad_id);
+    }
+    // A name is only unmatched if it still has no persisted link.
+    unmatched = unmatched.filter((n) => !linkByName.has(n));
   }
 
   // 3) Upsert daily insights for everything we could link.

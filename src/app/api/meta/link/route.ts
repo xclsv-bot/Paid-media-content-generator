@@ -34,6 +34,14 @@ export async function POST(req: Request) {
     .single();
 
   if (error) {
+    // 23505 = this (account, ad_name) is already linked. Return the existing
+    // link as a clean result instead of a raw Postgres 500.
+    if (error.code === "23505") {
+      let q = supabase.from("meta_ads").select().eq("ad_name", adName);
+      q = adAccountId ? q.eq("ad_account_id", adAccountId) : q.is("ad_account_id", null);
+      const { data: existing } = await q.maybeSingle();
+      return NextResponse.json({ link: existing, alreadyLinked: true });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json({ link: data }, { status: 201 });

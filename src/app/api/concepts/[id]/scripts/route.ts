@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { insertNextScriptVersion } from "@/lib/scripts";
 
 // POST /api/concepts/:id/scripts  { body, approve? }
 // Staff writes a human script version (e.g. editing an AI draft). New version,
@@ -21,27 +22,12 @@ export async function POST(
   }
 
   const supabase = await createClient();
-  const { data: latest } = await supabase
-    .from("scripts")
-    .select("version")
-    .eq("concept_id", conceptId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const version = (latest?.version ?? 0) + 1;
-
-  const { data, error } = await supabase
-    .from("scripts")
-    .insert({
-      concept_id: conceptId,
-      body,
-      source: "human",
-      status: approve ? "approved" : "draft",
-      version,
-      created_by: user!.id,
-    })
-    .select()
-    .single();
+  const { data, error } = await insertNextScriptVersion(supabase, conceptId, {
+    body,
+    source: "human",
+    status: approve ? "approved" : "draft",
+    created_by: user!.id,
+  });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ script: data }, { status: 201 });
