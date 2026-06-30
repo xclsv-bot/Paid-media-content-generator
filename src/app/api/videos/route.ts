@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { getCurrentUser, canUploadVideo } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 // POST /api/videos  — register a VideoAsset row AFTER the browser finished the
-// direct upload to storage. Editor-only (RLS also enforces this on insert).
+// direct upload to storage. Staff or an assigned creator; RLS (va_creator_write)
+// enforces per-row that a creator can only insert for an assigned concept.
 export async function POST(req: Request) {
   const user = await getCurrentUser();
-  if (!isStaff(user)) {
+  if (!canUploadVideo(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

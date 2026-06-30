@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { getCurrentUser, isStaff, isCreator } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
 import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/meta/perf";
 import VideoUploader from "@/components/VideoUploader";
+import DeliverableStatusControl from "@/components/DeliverableStatusControl";
 import VideoAssetCard from "@/components/VideoAssetCard";
 import ScriptPanel, { type Script } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
@@ -26,6 +27,7 @@ export default async function CreativePage({
   const { id } = await params;
   const user = await getCurrentUser();
   const staff = isStaff(user);
+  const creator = isCreator(user);
   const supabase = await createClient();
 
   const { data: creative } = await supabase
@@ -70,6 +72,20 @@ export default async function CreativePage({
       streamUrl: await createSignedStream(a.storage_path).catch(() => null),
     })),
   );
+
+  // For an assigned creator, load their deliverable for this concept so they can
+  // advance its production status from the brief. RLS (deliverables_creator_read)
+  // already restricts this to deliverables assigned to them.
+  let myDeliverable: { id: string; production_status: string | null } | null = null;
+  if (creator) {
+    const { data: dels } = await supabase
+      .from("deliverables")
+      .select("id, production_status, created_at")
+      .eq("concept_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    myDeliverable = dels?.[0] ?? null;
+  }
 
   const famRaw = (creative as unknown as {
     concept_families: { name: string; compliance_note: string | null } | { name: string; compliance_note: string | null }[] | null;
@@ -144,7 +160,13 @@ export default async function CreativePage({
               streamUrl={v.streamUrl}
             />
           ))}
-          {staff && <VideoUploader creativeId={creative.id} />}
+          {creator && myDeliverable && (
+            <DeliverableStatusControl
+              deliverableId={myDeliverable.id}
+              status={myDeliverable.production_status}
+            />
+          )}
+          {(staff || creator) && <VideoUploader creativeId={creative.id} />}
         </div>
       </div>
 
