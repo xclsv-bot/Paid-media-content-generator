@@ -40,10 +40,18 @@ export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!isStaff(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  // Resolve credentials from the environment (SDK order): ANTHROPIC_API_KEY,
+  // then ANTHROPIC_AUTH_TOKEN, then Workload Identity Federation, then a local
+  // `ant auth login` profile on disk. Construction throws if none are present.
+  let client: Anthropic;
+  try {
+    client = new Anthropic();
+  } catch {
     return NextResponse.json(
-      { error: "Ideate isn't configured — set ANTHROPIC_API_KEY." },
+      {
+        error:
+          "Ideate isn't configured — add Anthropic credentials (set ANTHROPIC_API_KEY in the deployment, or run `ant auth login` in local dev).",
+      },
       { status: 503 },
     );
   }
@@ -97,7 +105,6 @@ When the user shares context (call transcripts, references, performance signals)
     }
   }
 
-  const client = new Anthropic({ apiKey });
   try {
     const response = await client.messages.create({
       model: "claude-opus-4-8",
@@ -116,6 +123,16 @@ When the user shares context (call transcripts, references, performance signals)
     const parsed = JSON.parse(raw);
     return NextResponse.json({ reply: parsed.reply ?? "", concepts: parsed.concepts ?? [] });
   } catch (e) {
+    // Missing/expired/invalid credentials → surface as "not configured".
+    if (e instanceof Anthropic.AuthenticationError) {
+      return NextResponse.json(
+        {
+          error:
+            "Ideate credentials are missing or invalid — set ANTHROPIC_API_KEY in the deployment, or run `ant auth login` in local dev.",
+        },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Ideation failed" },
       { status: 500 },
