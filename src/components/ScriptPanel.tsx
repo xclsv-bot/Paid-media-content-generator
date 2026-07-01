@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { fetchJson } from "@/lib/http";
 
 export type Script = {
   id: string;
@@ -62,10 +63,9 @@ export default function ScriptPanel({
     setBusy(true);
     setStatus("Reviewing…");
     try {
-      const res = await fetch(`/api/scripts/${latest.id}/review`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setReview(json.review);
+      const { ok, data } = await fetchJson(`/api/scripts/${latest.id}/review`, { method: "POST" });
+      if (!ok) throw new Error(String(data.error ?? "Review failed"));
+      setReview(data.review as Review);
       setStatus(null);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Review failed");
@@ -79,9 +79,8 @@ export default function ScriptPanel({
     setBusy(true);
     setStatus("Writing an improved draft…");
     try {
-      const res = await fetch(`/api/scripts/${latest.id}/revise`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      const { ok, data } = await fetchJson(`/api/scripts/${latest.id}/revise`, { method: "POST" });
+      if (!ok) throw new Error(String(data.error ?? "Revision failed"));
       setStatus(null);
       router.refresh();
     } catch (e) {

@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText } from "@/lib/loop/rubric";
 
-export const maxDuration = 60;
+export const maxDuration = 300; // capped to plan max
 
 const REVISE_SCHEMA = {
   type: "object",
