@@ -6,7 +6,7 @@ import { createSignedStream } from "@/lib/storage";
 import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/meta/perf";
 import VideoUploader from "@/components/VideoUploader";
 import VideoAssetCard from "@/components/VideoAssetCard";
-import ScriptPanel, { type Script } from "@/components/ScriptPanel";
+import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
 
@@ -40,6 +40,20 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
     supabase.from("scripts").select("id, body, source, status, version, model, created_at").eq("concept_id", id).order("version", { ascending: false }),
     supabase.from("concept_references").select("id, kind, url, storage_path, label").eq("concept_id", id).order("created_at", { ascending: true }),
   ]);
+
+  // Latest reviewer scorecard for the current (latest) script version.
+  const scriptList = (scripts as unknown as Script[]) ?? [];
+  let latestReview: Review | null = null;
+  if (scriptList[0]) {
+    const { data: rev } = await supabase
+      .from("script_reviews")
+      .select("id, script_id, scores, overall, verdict, weaknesses, suggestions, compliance_flags")
+      .eq("script_id", scriptList[0].id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    latestReview = (rev as unknown as Review) ?? null;
+  }
 
   const videos = await Promise.all(
     (assets ?? []).map(async (a) => ({
@@ -99,7 +113,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
             </section>
           )}
 
-          <ScriptPanel conceptId={creative.id} scripts={(scripts as unknown as Script[]) ?? []} scriptDocUrl={creative.script_doc_url} canEdit={staff} />
+          <ScriptPanel conceptId={creative.id} scripts={scriptList} scriptDocUrl={creative.script_doc_url} canEdit={staff} latestReview={latestReview} />
           <ReferencesPanel conceptId={creative.id} references={(refs as unknown as Reference[]) ?? []} canEdit={staff} />
         </div>
 
