@@ -8,6 +8,8 @@ import {
   type Rollup,
 } from "@/lib/meta/perf";
 import { isMature, minTrials, rankScore, hitRate, MATURE_DAYS } from "@/lib/loop/attribution";
+import { latestLearnings, type Learning } from "@/lib/loop/learnings";
+import LearningsPanel from "@/components/LearningsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +81,7 @@ export default async function PerformancePage() {
   const byArchetype = rollupBy(withDim((d) => d?.archetype ?? null), targetForRow);
   const bySport = rollupBy(withDim((d) => d?.sport ?? null), targetForRow);
 
+  const learning = await latestLearnings(supabase);
   const targetDollars = fallback != null ? `$${(fallback / 100).toFixed(2)}` : null;
 
   return (
@@ -102,6 +105,8 @@ export default async function PerformancePage() {
           No performance data yet. {isStaff(user) ? "Connect Meta or import a CSV to populate this." : ""}
         </p>
       )}
+
+      <LearningsPanel learning={learning as Learning | null} canGenerate={isStaff(user)} />
 
       {/* ── Learnings scoreboard (gated) ─────────────────────────────── */}
       <section className="mb-10">
