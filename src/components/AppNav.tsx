@@ -7,6 +7,7 @@ export default async function AppNav() {
   if (!user) return null;
   const staff = isStaff(user);
   const creator = user.role === "creator";
+  const client = user.role === "client_viewer";
 
   return (
     <header className="border-b border-white/10">
@@ -14,6 +15,13 @@ export default async function AppNav() {
         <span className="mr-4 font-semibold">XCLSV</span>
         {creator ? (
           <NavLink href="/queue">My Queue</NavLink>
+        ) : client ? (
+          <>
+            <NavLink href="/client">Home</NavLink>
+            <NavLink href="/client/library">Content</NavLink>
+            <NavLink href="/client/ideas">Ideas</NavLink>
+            <NavLink href="/client/insights">Insights</NavLink>
+          </>
         ) : (
           <>
             <NavLink href="/ideas">Ideas</NavLink>
@@ -22,6 +30,7 @@ export default async function AppNav() {
             <NavLink href="/review">Review</NavLink>
             {staff && <NavLink href="/performance">Performance</NavLink>}
             {staff && <NavLink href="/import">Import</NavLink>}
+            <NavLink href="/client">Client view</NavLink>
           </>
         )}
         <span className="ml-auto text-white/40">

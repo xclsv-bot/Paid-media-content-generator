@@ -23,6 +23,8 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const user = await getCurrentUser();
   const staff = isStaff(user);
+  const client = user?.role === "client_viewer";
+  const back = client ? { href: "/client/library", label: "← Content" } : { href: "/ideas", label: "← Ideas" };
   const supabase = await createClient();
 
   const { data: creative } = await supabase
@@ -70,7 +72,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
 
   return (
     <main className="mx-auto max-w-6xl p-6 pb-24">
-      <Link href="/ideas" className="text-[13px] text-white/50 hover:text-white">← Ideas</Link>
+      <Link href={back.href} className="text-[13px] text-white/50 hover:text-white">{back.label}</Link>
 
       <header className="mb-7 mt-4">
         <div className="flex items-center gap-2.5 font-mono text-[11.5px] uppercase tracking-wide text-white/45">
