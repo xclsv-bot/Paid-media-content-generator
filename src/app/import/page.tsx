@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import MetaImporter from "@/components/MetaImporter";
+import MetaSync from "@/components/MetaSync";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +40,14 @@ export default async function ImportPage() {
       <Link href="/performance" className="text-sm text-white/50 hover:underline">
         ← Performance
       </Link>
-      <h1 className="mt-1 mb-2 text-2xl font-semibold">Import Meta CSV</h1>
+      <h1 className="mt-1 mb-2 text-2xl font-semibold">Meta performance</h1>
       <p className="mb-6 text-sm text-white/50">
-        Drop an Ads Manager export. Rows join to creatives by ad name; anything that
-        doesn&apos;t match is listed below so you can link it and re-import.
+        Pull performance from the Meta Marketing API, or drop an Ads Manager CSV. Rows join
+        to creatives by ad name; anything that doesn&apos;t match is listed so you can link it.
       </p>
+      <div className="mb-6">
+        <MetaSync />
+      </div>
       <MetaImporter creatives={creatives} />
     </main>
   );
