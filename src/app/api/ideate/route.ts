@@ -4,7 +4,7 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents, isHit } from "@/lib/meta/perf";
 
-export const maxDuration = 60;
+export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
 type ChatMsg = { role: "user" | "ai"; text: string };
 type Source = { type?: string; name?: string; note?: string };
@@ -153,9 +153,11 @@ When the user shares context (call transcripts, references, performance signals)
   try {
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 8000,
+      max_tokens: 4096,
       thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: CONCEPT_SCHEMA } },
+      // Low effort keeps the chat responsive and well under the function timeout
+      // (a longer "refine" turn at medium effort was overrunning it).
+      output_config: { effort: "low", format: { type: "json_schema", schema: CONCEPT_SCHEMA } },
       system,
       messages: apiMessages,
     });

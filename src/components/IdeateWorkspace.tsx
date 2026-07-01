@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { fetchJson } from "@/lib/http";
 
 type Concept = {
   family: string;
@@ -45,7 +46,7 @@ export default function IdeateWorkspace() {
     setComposer("");
     setBusy(true);
     try {
-      const res = await fetch("/api/ideate", {
+      const { ok, data } = await fetchJson("/api/ideate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -53,9 +54,11 @@ export default function IdeateWorkspace() {
           sources,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setMessages((m) => [...m, { role: "ai", text: json.reply, concepts: json.concepts }]);
+      if (!ok) throw new Error(String(data.error ?? "Ideation failed"));
+      setMessages((m) => [
+        ...m,
+        { role: "ai", text: String(data.reply ?? ""), concepts: (data.concepts as Concept[]) ?? [] },
+      ]);
     } catch (e) {
       setMessages((m) => [...m, { role: "ai", text: `⚠ ${e instanceof Error ? e.message : "Failed"}` }]);
     } finally {
