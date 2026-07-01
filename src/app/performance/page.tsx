@@ -7,7 +7,7 @@ import {
   type CreativePerf,
   type Rollup,
 } from "@/lib/meta/perf";
-import { isMature, minTrials, rankScore, hitRate, MATURE_DAYS } from "@/lib/loop/attribution";
+import { isMature, minTrials, rankScore, hitRate, slotStatus, type SlotStatus, MATURE_DAYS } from "@/lib/loop/attribution";
 import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
 
@@ -31,6 +31,17 @@ function familyName(d: Dim): string | null {
   return Array.isArray(f) ? f[0]?.name ?? null : f.name;
 }
 
+const STATUS_PILL: Record<SlotStatus, string> = {
+  Proven: "bg-emerald-500/15 text-emerald-300",
+  Validating: "bg-sky-500/15 text-sky-300",
+  Untested: "bg-white/10 text-white/50",
+};
+const STATUS_DOT: Record<SlotStatus, string> = {
+  Proven: "bg-emerald-400",
+  Validating: "bg-sky-400",
+  Untested: "bg-white/30",
+};
+
 const DIMENSIONS: { label: string; pick: (d: Dim | undefined) => string | null }[] = [
   { label: "Concept family", pick: (d) => (d ? familyName(d) : null) },
   { label: "Hook angle", pick: (d) => d?.hook_angle ?? null },
@@ -44,13 +55,14 @@ export default async function PerformancePage() {
   const user = await getCurrentUser();
   const supabase = await createClient();
 
-  const [{ data: perfRows }, { data: dimRows }] = await Promise.all([
+  const [{ data: perfRows }, { data: dimRows }, { data: familyRows }] = await Promise.all([
     supabase
       .from("creative_performance")
       .select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated, first_date"),
     supabase
       .from("creatives")
       .select("id, hook_angle, archetype, sport, feature_pillar, format, cpt_target_cents, concept_families(name)"),
+    supabase.from("concept_families").select("name").order("name"),
   ]);
 
   const dims = new Map<string, Dim>();
@@ -73,6 +85,14 @@ export default async function PerformancePage() {
       rows: rankScore(rollupBy(rows.map((p) => ({ ...p, dimension: dd.pick(dims.get(p.creative_id)) })), targetForRow)),
     }));
   const scored = scoreboard(matured);
+
+  // Portfolio: every family's status from its matured family rollup.
+  const famRollup = new Map((scored.find((s) => s.label === "Concept family")?.rows ?? []).map((r) => [r.key, r]));
+  const portfolio = ((familyRows ?? []) as { name: string }[]).map((f) => {
+    const r = famRollup.get(f.name);
+    return { name: f.name, status: slotStatus(r), n: r?.count ?? 0, hits: r?.hits ?? 0, judged: r?.judged ?? 0, cpt: r?.cpt ?? null };
+  });
+  const provenCount = portfolio.filter((p) => p.status === "Proven").length;
 
   // Ungated full view (all creatives with any data) — kept for transparency.
   const withDim = (pick: (d: Dim | undefined) => string | null) =>
@@ -107,6 +127,30 @@ export default async function PerformancePage() {
       )}
 
       <LearningsPanel learning={learning as Learning | null} canGenerate={isStaff(user)} />
+
+      {/* ── Portfolio (format/family slots) ──────────────────────────── */}
+      <section className="mb-10">
+        <div className="mb-1 flex items-baseline gap-2">
+          <h2 className="text-lg font-medium">Portfolio</h2>
+          <span className="font-mono text-xs text-white/40">{provenCount} of {portfolio.length} families proven</span>
+        </div>
+        <p className="mb-4 text-xs text-white/45">
+          Proven = ≥2 matured creatives clearing the target hit rate. Keep proven families producing; give
+          exploration budget to Validating and Untested.
+        </p>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {portfolio.map((p) => (
+            <div key={p.name} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+              <span className={`h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[p.status]}`} />
+              <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
+              <span className="font-mono text-[11px] text-white/45">
+                {p.judged > 0 ? `${p.hits}/${p.judged}${p.cpt != null ? ` · $${p.cpt.toFixed(0)}` : ""}` : "—"}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${STATUS_PILL[p.status]}`}>{p.status}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ── Learnings scoreboard (gated) ─────────────────────────────── */}
       <section className="mb-10">
