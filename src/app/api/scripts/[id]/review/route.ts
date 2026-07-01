@@ -3,6 +3,7 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText, PASS_BAR } from "@/lib/loop/rubric";
+import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -77,6 +78,9 @@ ${rubricText()}
 
 Compliance is a hard gate: if the script risks any compliance rule, score compliance below ${PASS_BAR} and list the exact risk in compliance_flags. weaknesses and suggestions must be specific and actionable (quote the line, say the fix) — no generic praise.`;
 
+  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
+  const systemFull = learnBlock ? `${system}\n\n${learnBlock}` : system;
+
   let client: Anthropic;
   try {
     client = createAnthropic();
@@ -90,7 +94,7 @@ Compliance is a hard gate: if the script risks any compliance rule, score compli
       max_tokens: 4000,
       thinking: { type: "adaptive" },
       output_config: { effort: "high", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
-      system,
+      system: systemFull,
       messages: [{ role: "user", content: `CONCEPT CONTEXT\n${context}\n\nSCRIPT (v${script.version})\n${script.body}` }],
     });
     if (response.stop_reason === "refusal") {

@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents, isHit } from "@/lib/meta/perf";
+import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
@@ -119,6 +120,7 @@ export async function POST(req: Request) {
       ].filter(Boolean).join("\n\n") || "(spend exists but nothing is judged against target yet)";
   }
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
+  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
 
   const sourceList = (sources ?? [])
     .map((s) => `• [${s.type ?? "ref"}] ${s.name ?? ""}${s.note ? ` — ${s.note}` : ""}`)
@@ -135,6 +137,8 @@ Live performance signals (Target CPT ${targetDollars}; lower CPT is better):
 ${perfSignals}
 
 Use the live signals: lean into the pattern behind the top performers, diagnose why the underperformers miss, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners — do not just restate a winning ad.
+
+${learnBlock || ""}
 
 When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
