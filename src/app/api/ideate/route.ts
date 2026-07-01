@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { defaultTargetCents, isHit } from "@/lib/meta/perf";
 
 export const maxDuration = 60;
 
@@ -66,19 +67,58 @@ export async function POST(req: Request) {
 
   // Ground the model in the existing slate + what's winning.
   const supabase = await createClient();
-  const [{ data: families }, { data: proven }] = await Promise.all([
+  const target = defaultTargetCents(); // cents; contract Target CPT ($30)
+  const [{ data: families }, { data: proven }, { data: perf }] = await Promise.all([
     supabase.from("concept_families").select("name").order("name"),
-    supabase
-      .from("creatives")
-      .select("hook_line, hook_angle, sport")
-      .eq("is_proven", true)
-      .limit(8),
+    supabase.from("creatives").select("hook_line, hook_angle, sport").eq("is_proven", true).limit(8),
+    supabase.from("creative_performance").select("creative_id, spend, cpt").gt("spend", 0),
   ]);
   const familyList = (families ?? []).map((f: { name: string }) => f.name).join(", ");
   const provenList = (proven ?? [])
     .map((p: { hook_line: string | null; hook_angle: string | null; sport: string | null }) =>
       `• "${p.hook_line}" — ${p.hook_angle ?? "?"} / ${p.sport ?? "?"}`)
     .join("\n");
+
+  // Live performance signals: label each spent concept Hit/Miss vs the CPT target.
+  type PerfRow = { creative_id: string; spend: number | null; cpt: number | null };
+  type Label = {
+    id: string;
+    hook_line: string | null;
+    hook_angle: string | null;
+    archetype: string | null;
+    sport: string | null;
+    cpt_target_cents: number | null;
+    concept_families: { name: string } | { name: string }[] | null;
+  };
+  const perfRows = ((perf ?? []) as PerfRow[]).filter((r) => r.cpt != null);
+  let perfSignals = "(no live performance data yet — connect Meta or import a CSV)";
+  if (perfRows.length) {
+    const { data: labels } = await supabase
+      .from("creatives")
+      .select("id, hook_line, hook_angle, archetype, sport, cpt_target_cents, concept_families(name)")
+      .in("id", perfRows.map((r) => r.creative_id));
+    const byId = new Map<string, Label>();
+    ((labels ?? []) as unknown as Label[]).forEach((c) => byId.set(c.id, c));
+    const enriched = perfRows.map((r) => {
+      const c = byId.get(r.creative_id);
+      const famRaw = c?.concept_families;
+      const fam = !famRaw ? "?" : Array.isArray(famRaw) ? famRaw[0]?.name ?? "?" : famRaw.name;
+      const cpt = Number(r.cpt);
+      return {
+        cpt,
+        hit: isHit(cpt, c?.cpt_target_cents ?? target),
+        line: `• "${c?.hook_line ?? "?"}" — ${fam} / ${c?.hook_angle ?? "?"} / ${c?.archetype ?? "?"} / ${c?.sport ?? "?"} · CPT $${cpt.toFixed(2)}`,
+      };
+    });
+    const winners = enriched.filter((e) => e.hit === true).sort((a, b) => a.cpt - b.cpt).slice(0, 8);
+    const misses = enriched.filter((e) => e.hit === false).sort((a, b) => b.cpt - a.cpt).slice(0, 6);
+    perfSignals =
+      [
+        winners.length ? `TOP PERFORMERS (CPT at/under target):\n${winners.map((e) => e.line).join("\n")}` : "",
+        misses.length ? `UNDERPERFORMING (CPT over target):\n${misses.map((e) => e.line).join("\n")}` : "",
+      ].filter(Boolean).join("\n\n") || "(spend exists but nothing is judged against target yet)";
+  }
+  const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
 
   const sourceList = (sources ?? [])
     .map((s) => `• [${s.type ?? "ref"}] ${s.name ?? ""}${s.note ? ` — ${s.note}` : ""}`)
@@ -91,7 +131,12 @@ Existing concept families: ${familyList || "(none yet)"}.
 Recently proven winners:
 ${provenList || "(none yet)"}
 
-When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
+Live performance signals (Target CPT ${targetDollars}; lower CPT is better):
+${perfSignals}
+
+Use the live signals: lean into the pattern behind the top performers, diagnose why the underperformers miss, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners — do not just restate a winning ad.
+
+When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
   const apiMessages = messages.map((m) => ({
     role: m.role === "ai" ? ("assistant" as const) : ("user" as const),
