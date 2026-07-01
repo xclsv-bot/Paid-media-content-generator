@@ -1,11 +1,14 @@
 // Performance math, in one place so the per-creative panel and the rollups agree.
 
-// Global default CPT target (dollars) from env; per-creative override wins.
+// Global default CPT target (dollars); per-creative override wins.
+// Contract Target CPT for Outlier is $30.00 (Performance Standard §4.2), revisable
+// monthly by written agreement — override via META_CPT_TARGET without a code change.
+const CONTRACT_TARGET_CENTS = 3000;
 export function defaultTargetCents(): number | null {
   const raw = process.env.META_CPT_TARGET;
-  if (!raw) return null;
+  if (!raw) return CONTRACT_TARGET_CENTS;
   const n = Number(raw);
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
+  return Number.isFinite(n) ? Math.round(n * 100) : CONTRACT_TARGET_CENTS;
 }
 
 export type CreativePerf = {
