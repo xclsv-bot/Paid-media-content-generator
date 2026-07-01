@@ -129,7 +129,7 @@ export default async function CreativePage({
             <Field label="Sport" value={creative.sport} />
             <Field label="Format" value={creative.format} />
             <Field label="CTA" value={creative.cta} />
-            <Field label="Production status" value={creative.status} />
+            <Field label="Concept status" value={creative.status} />
             <Field label="Variant" value={creative.variant_differentiator} />
           </section>
 

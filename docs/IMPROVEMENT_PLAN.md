@@ -6,6 +6,14 @@ is written so a developer who did **not** write this plan can pick one item cold
 start immediately — without asking what to do, why, what "done" means, or whether they
 can begin.
 
+>**Status (this branch).** P-1 through P-8 below are **implemented** on
+`claude/harden-improvement-plan-cr7ciy` (Batches A–C; typecheck + tests + build green).
+Two quick redundancies from the architecture review are also fixed here: `getCurrentUser`
+is deduped per request with React `cache()` (`src/lib/auth.ts`), and the concept-brief field
+reading `creatives.status` was relabeled **"Concept status"** so it no longer collides with a
+deliverable's `production_status`. The **A-1 … A-7** items near the end are the remaining
+architecture-review follow-ups and are **not yet started**.
+
 ## How to read an item
 - **Files** — the exact files you'll touch (with line numbers as of this writing; grep
   to re-confirm before editing).
@@ -339,14 +347,145 @@ confirm: `application/pdf`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`
 
 ---
 
+## Architecture review — follow-ups (A-1 … A-7)
+
+Surfaced by an architecture review of the app on this branch. Same bar as the P-items: a
+fresh developer can pick one up cold. Where an item turns on a decision this plan does not
+own, it is flagged rather than guessed.
+
+### A-1 — Add RLS / authorization integration tests  *(severity: high)*
+**Files:** new test harness + tests; policies live in `0001_init.sql`,
+`0004_security_hardening.sql`, `0006_pipeline.sql`.
+
+**Why:** RLS is the real authorization boundary — the route-level `isStaff` / `canUploadVideo`
+checks are only a coarse first gate, and every page/route relies on the user-scoped server
+client returning only permitted rows. Yet no test exercises those policies (the P-6 suite
+covers pure functions only). One mistaken `using` clause — e.g. a policy that forgets
+`is_creator()` — would silently expose another org's creatives, a client's view of cost, or
+another creator's deliverables, and CI would stay green. The security model is unverified.
+
+**Definition of done:**
+- [ ] A suite exercises each role against the live policies and asserts at minimum: a
+      `client_viewer` reading `creative_financials` gets **zero rows**; a `client_viewer`
+      cannot see another org's creatives (`can_see_creative`); a `creator` can neither SELECT
+      nor UPDATE a deliverable whose `assignee_id` isn't them (`deliverables_creator_update`);
+      a `creator` cannot INSERT a `video_assets` row for an unassigned concept
+      (`va_creator_write`); `POST /api/agent/scripts` rejects a missing/incorrect key.
+- [ ] It runs in CI against a DB with all migrations applied.
+
+**⚠ Needs owner (approach):** pick the harness — Supabase local + **pgTAP** (tests next to the
+schema, recommended), a seeded integration suite that connects as each role via separate JWTs
+and asserts row visibility, or an ephemeral Supabase branch per CI run. Sets the pattern for
+all future policy tests. **Prerequisite:** A-2 (CI needs the schema applied to test against).
+
+### A-2 — Enforce migrations in CI + reconcile the live schema  *(severity: high)*
+**Files:** `.github/workflows/ci.yml`; `docs/SETUP.md`; `supabase/migrations/*`.
+
+**Why:** migrations are applied **by hand** ("run in the SQL editor" per `docs/SETUP.md`), and
+several PRs shipped noting migrations were "not yet applied to the live project." Schema state
+is tracked by convention, not enforced: CI runs `typecheck`/`build`/`test` but never applies
+the migrations, so a broken or mis-ordered migration (like the `0006` ordering bug fixed in
+PR #5) isn't caught until someone runs it against production. This is active repo↔prod drift.
+
+**Definition of done:**
+- [ ] CI applies **all** migrations in order against an ephemeral Postgres (Supabase CLI
+      `db reset`, or a Postgres service container running each file) and **fails** if any
+      migration errors.
+- [ ] `docs/SETUP.md` names the single source of truth for applying migrations and how to read
+      the live DB's current version.
+
+**⚠ Needs owner / needs verification:** (a) tooling — Supabase CLI (`db push`) vs a raw psql
+loop; (b) **verify which migrations are actually applied on the live project** — in particular
+`0007_single_active_cycle.sql` and `0008_references_mime.sql` (added by Batches B/C) are
+written but, as far as the repo can tell, **not yet applied**. Confirm and apply.
+
+### A-3 — Generalize the tenant model beyond a single client  *(flag: needs owner)*
+**Files:** `src/lib/auth.ts` (`AppUser.org` union); the `org_type` enum + `client_org` columns
+in `0001_init.sql`.
+
+**Why:** the data model is org-scoped (good — `client_org`, `can_see_creative`, `current_org`),
+but the app **hardcodes exactly two orgs**: `AppUser.org` is the literal union
+`"XCLSV" | "Outlier"`, and `org_type` is a Postgres enum. Onboarding a second client is a
+code + enum change (and an enum value can't be dropped), not a data operation — cheap to
+generalize before client #2, a migration touching every RLS policy after.
+
+**Definition of done (only if the decision is "yes, multi-client"):**
+- [ ] `org` becomes a first-class `orgs` row referenced by FK from `users`/`creatives`/`cycles`,
+      replacing the `org_type` enum and the TS literal union; `current_org()` / `can_see_creative()`
+      updated; existing XCLSV/Outlier rows migrated.
+
+**⚠ Needs owner (product/priority):** **is multi-client in scope?** This item cannot start until
+that is decided — if "single client, ever," close it as won't-do and delete the ambiguity.
+Do **not** begin the refactor speculatively.
+
+### A-4 — Build or formally defer the client approval / comments flow  *(severity: med)*
+**Files:** `comments` and `approvals` tables + RLS in `0001_init.sql`; no route or component
+exists.
+
+**Why:** the pipeline's "delivered → client approves → live" transition
+(`docs/CREATIVE_PIPELINE.md`) has **schema and RLS but no code** — a dangling model that reads
+as "done" because the tables exist. Today it's ambiguous whether it's unbuilt or abandoned.
+
+**Definition of done — EITHER:**
+- [ ] Build the minimal flow: an endpoint for a `client_viewer` to record an approval / post a
+      comment on a delivered creative (RLS already scopes them to their org) plus the surface on
+      the creative page; **OR**
+- [ ] Mark it explicitly deferred in `docs/CREATIVE_PIPELINE.md` with a "schema exists, UI not
+      built" note so it isn't mistaken for shipped.
+
+**⚠ Needs owner:** which path (build vs defer); if building, exactly which role approves and
+what an approval gates.
+
+### A-5 — Rate-limit + body-cap the key-only / bulk endpoints  *(severity: med)*
+**Files:** `src/app/api/agent/scripts/route.ts`, `src/app/api/meta/import/route.ts`.
+
+**Why:** both parse an **unbounded** JSON body. `/api/agent/scripts` is the one endpoint
+authenticated by a static API key rather than a user session — the natural target for abuse or
+a runaway agent — and `/api/meta/import` accepts an arbitrarily large CSV string. Neither caps
+size nor throttles, so a large or repeated payload is unbounded server work.
+
+**Definition of done:**
+- [ ] Both endpoints reject oversized bodies (a sane max content-length) with 413 and apply
+      basic per-key / per-IP throttling.
+
+**⚠ Needs owner (mechanism + limits):** where throttling lives (edge middleware, a KV/Upstash
+limiter, Supabase) and the concrete limits are an architecture/priority call, not a clear-cut
+defect. Pick the mechanism before implementing. *(Supersedes the earlier "rate-limiting"
+deferred note.)*
+
+### A-6 — Bound the performance aggregation as insights history grows  *(flag: needs verification)*
+**Files:** `creative_performance` view in `0003_performance.sql`; `src/app/performance/page.tsx`.
+
+**Why:** the view sums `meta_insights_daily` over **all time** with no date window, and
+`/performance` pulls **every** perf row plus every creative and rolls them up **in JavaScript**.
+At today's scale (~40 creatives) this is fast; as daily rows accumulate over months across many
+ads, the all-time aggregation and full-table fetch become the page's ceiling.
+
+**Definition of done:**
+- [ ] Confirm from real data volume whether this is (or is trending toward) a bottleneck; if so,
+      add a date-window (per-cycle or last-N-days) to the query and/or a materialized rollup, and
+      push the dimension rollups into SQL instead of JS.
+
+**⚠ Needs verification:** a *latent* scale concern, not a current defect — do not optimize until
+the data volume justifies it. Join indexes are already adequate (`meta_insights_daily` unique
+`(meta_ad_id, date)`).
+
+### A-7 — Plan the synthetic→real `meta_ad_id` reconciliation for Phase 3  *(flag: needs owner)*
+**Files:** `src/app/api/meta/import/route.ts`, `src/app/api/meta/link/route.ts` (both write
+`name:<adName>` placeholder ids); Marketing API ingestion (future).
+
+**Why:** when a CSV row has no Meta ad id, the importer stores a synthetic `meta_ad_id` of
+`name:<adName>`. The live Marketing API (Phase 3) brings **real** ad ids that must be reconciled
+against these placeholders, or a single ad's performance history splits across two ids.
+
+**Definition of done:** as part of Phase 3, a documented migration that maps existing `name:*`
+placeholders to real ad ids (or re-keys history) so no creative's metrics fragment.
+
+**⚠ Needs owner:** Phase-3 scoped — sequence with the Marketing API work, not before.
+
+---
+
 ## Out of scope / explicitly deferred
-These were considered during the audit and intentionally left out so each item above stays
-focused. Promote them to full items only with an owner's go-ahead:
-- **Rate-limiting / request-size caps** on `POST /api/agent/scripts` and
-  `POST /api/meta/import` (both parse an unbounded JSON body). ⚠ Needs owner — this is a
-  priority/risk-acceptance call, not a clear-cut defect.
-- **Migrating the 6 legacy Google Drive video links into the bucket** (noted in
-  `docs/SETUP.md` → "Not yet done"). ⚠ Needs verification — depends on access to those
-  Drive files, which is outside this repo.
-- **Comments / approvals UI** (tables + RLS already exist per PR #1) — a feature, not a
-  hardening item.
+- **Migrating the 6 legacy Google Drive video links into the bucket** (`docs/SETUP.md` → "Not
+  yet done"). ⚠ Needs verification — depends on access to those Drive files, outside this repo.
+- **Controlled vocabularies** for `hook_angle` / `feature_pillar` rollups (noted in PR #1).
