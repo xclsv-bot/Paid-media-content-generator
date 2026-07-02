@@ -92,6 +92,11 @@ export default async function ClientInsights() {
                   <span className="w-5 shrink-0 text-center font-mono text-[12px] text-white/35">{idx + 1}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] text-gray-100">{it.hookLine}</span>
+                    {it.adName && (
+                      <span className="block truncate font-mono text-[11px] text-white/45" title={it.adName}>
+                        {it.adName}
+                      </span>
+                    )}
                     <span className="text-[11.5px] text-white/40">
                       {it.familyName ?? "—"}
                       {it.facets.angle ? ` · ${it.facets.angle}` : ""}

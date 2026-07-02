@@ -9,6 +9,7 @@ import VideoAssetCard from "@/components/VideoAssetCard";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
+import AdNameTag from "@/components/AdNameTag";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   const { data: creative } = await supabase
     .from("creatives")
     .select(
-      "id, sheet_id, content_summary, hook_line, hypothesis, hook_angle, archetype, feature_pillar, sport, format, variant_differentiator, cta, status, idea_status, is_proven, compliance_note, script_doc_url, cpt_target_cents, concept_families(name, compliance_note)",
+      "id, sheet_id, ad_name, content_summary, hook_line, hypothesis, hook_angle, archetype, feature_pillar, sport, format, variant_differentiator, cta, status, idea_status, is_proven, compliance_note, script_doc_url, cpt_target_cents, concept_families(name, compliance_note)",
     )
     .eq("id", id)
     .single();
@@ -83,6 +84,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
           <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-gray-50">“{creative.hook_line}”</h1>
           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${IDEA_PILL[creative.idea_status] ?? ""}`}>{creative.idea_status}</span>
         </div>
+        {creative.ad_name && <AdNameTag name={creative.ad_name} className="mt-3 max-w-xl" />}
       </header>
 
       {compliance && (

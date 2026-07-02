@@ -45,6 +45,7 @@ export { isStaff };
 export type ContentItem = {
   id: string;
   sheetId: string | null;
+  adName: string | null;
   hookLine: string | null;
   summary: string | null;
   ideaStatus: string;
@@ -139,6 +140,7 @@ export async function loadClientContent(supabase: SupabaseClient): Promise<Conte
     return {
       id: c.id,
       sheetId: c.sheet_id,
+      adName: c.ad_name,
       hookLine: c.hook_line,
       summary: c.content_summary,
       ideaStatus: c.idea_status,
