@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireClientView, loadClientContent, usd, num } from "@/lib/client/data";
 import type { ContentItem } from "@/lib/client/data";
-import { rollupBy, defaultTargetCents, type CreativePerf, type Rollup } from "@/lib/meta/perf";
+import { rollupBy, defaultTargetCents, type CreativePerf, type Rollup } from "@/lib/metrics/perf";
 
 export const dynamic = "force-dynamic";
 

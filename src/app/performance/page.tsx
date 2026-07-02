@@ -6,7 +6,7 @@ import {
   rollupBy,
   type CreativePerf,
   type Rollup,
-} from "@/lib/meta/perf";
+} from "@/lib/metrics/perf";
 import { isMature, minTrials, rankScore, hitRate, slotStatus, type SlotStatus, MATURE_DAYS } from "@/lib/loop/attribution";
 import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
@@ -115,14 +115,11 @@ export default async function PerformancePage() {
             {targetDollars && ` · CPT target ${targetDollars}`}
           </p>
         </div>
-        {isStaff(user) && (
-          <Link href="/import" className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black">Meta performance</Link>
-        )}
       </header>
 
       {totalSpend === 0 && (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No performance data yet. {isStaff(user) ? "Connect Meta or import a CSV to populate this." : ""}
+          No performance data yet. {isStaff(user) ? "Add a weekly report to populate this." : ""}
         </p>
       )}
 

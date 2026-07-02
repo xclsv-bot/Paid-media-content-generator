@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
-import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/meta/perf";
+import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/metrics/perf";
 import VideoUploader from "@/components/VideoUploader";
 import VideoAssetCard from "@/components/VideoAssetCard";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";

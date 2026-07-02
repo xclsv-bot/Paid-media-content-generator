@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { defaultTargetCents, isHit } from "@/lib/meta/perf";
+import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)

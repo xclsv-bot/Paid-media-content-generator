@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { defaultTargetCents, isHit } from "@/lib/meta/perf";
+import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import IdeasList, { type IdeaRow } from "@/components/IdeasList";
 
 export const dynamic = "force-dynamic";
