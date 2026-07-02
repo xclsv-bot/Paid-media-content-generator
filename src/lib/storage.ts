@@ -38,6 +38,14 @@ export async function createSignedDownload(
   return data.signedUrl;
 }
 
+// Remove a stored master file. Best-effort — a missing object is not fatal to
+// the caller (the DB row is the source of truth we care about clearing).
+export async function deleteStoredVideo(path: string) {
+  const admin = createAdminClient();
+  const { error } = await admin.storage.from(BUCKET).remove([path]);
+  if (error) throw error;
+}
+
 // Streaming URL for in-app playback (inline, not forced download).
 export async function createSignedStream(path: string, expiresInSeconds = 60 * 60) {
   const admin = createAdminClient();
