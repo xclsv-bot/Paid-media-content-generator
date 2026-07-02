@@ -1,4 +1,4 @@
-import { type Rollup } from "@/lib/meta/perf";
+import { type Rollup } from "@/lib/metrics/perf";
 
 // A cohort is judged once its 21-day measurement window has closed (the contract
 // Performance Standard §4.3). We use the first day a creative recorded spend as

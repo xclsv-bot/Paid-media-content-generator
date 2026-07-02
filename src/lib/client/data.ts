@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser, isStaff, type AppUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
-import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/meta/perf";
+import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/metrics/perf";
 import { categorize, type Facets } from "@/lib/client/categorize";
 import type { ReviewComment } from "@/components/ReviewCard";
 

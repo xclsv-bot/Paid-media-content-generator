@@ -1,11 +1,12 @@
 // Performance math, in one place so the per-creative panel and the rollups agree.
+// Sourced from the team's weekly report (creative_metrics), keyed by ad name.
 
-// Global default CPT target (dollars); per-creative override wins.
-// Contract Target CPT for Outlier is $30.00 (Performance Standard §4.2), revisable
-// monthly by written agreement — override via META_CPT_TARGET without a code change.
+// Global default CPA/CPT target (dollars); per-creative override wins.
+// The client's Performance Standard target is $30.00 (revisable monthly) — set
+// CPA_TARGET (or legacy META_CPT_TARGET) to change it without a code change.
 const CONTRACT_TARGET_CENTS = 3000;
 export function defaultTargetCents(): number | null {
-  const raw = process.env.META_CPT_TARGET;
+  const raw = process.env.CPA_TARGET ?? process.env.META_CPT_TARGET;
   if (!raw) return CONTRACT_TARGET_CENTS;
   const n = Number(raw);
   return Number.isFinite(n) ? Math.round(n * 100) : CONTRACT_TARGET_CENTS;
@@ -16,13 +17,13 @@ export type CreativePerf = {
   spend: number;
   impressions: number;
   clicks: number;
-  results: number;
+  results: number; // conversions
   ctr: number | null;
-  cpt: number | null; // dollars
+  cpt: number | null; // dollars — cost per conversion (CPA)
   last_updated: string | null;
 };
 
-// Hit? = CPT <= target. Null if we have no CPT or no target to judge against.
+// Hit? = CPA/CPT <= target. Null if we have no value or no target to judge against.
 export function isHit(cptDollars: number | null, targetCents: number | null): boolean | null {
   if (cptDollars === null || targetCents === null) return null;
   return cptDollars <= targetCents / 100;

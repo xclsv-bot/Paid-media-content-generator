@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { defaultTargetCents, rollupBy, type CreativePerf } from "@/lib/meta/perf";
+import { defaultTargetCents, rollupBy, type CreativePerf } from "@/lib/metrics/perf";
 import { isMature, minTrials, rankScore } from "@/lib/loop/attribution";
 
 type Dim = {
