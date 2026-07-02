@@ -227,7 +227,16 @@ export default function WeekBoard({
 
       {/* table */}
       <div className="overflow-x-auto rounded-xl border border-white/10">
-        <table className="w-full text-left text-sm">
+        <table className="w-full table-fixed text-left text-sm">
+          <colgroup>
+            <col className="w-10" />
+            <col />
+            <col className="w-40" />
+            <col className="w-36" />
+            <col className="w-36" />
+            <col className="w-14" />
+            <col className="w-24" />
+          </colgroup>
           <thead className="bg-white/5 text-white/60">
             <tr>
               <th className="px-3 py-2">#</th>
@@ -235,8 +244,8 @@ export default function WeekBoard({
               <th className="px-3 py-2">Assignee</th>
               <th className="px-3 py-2">Due</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Video</th>
-              <th className="px-3 py-2"></th>
+              <th className="px-3 py-2 text-center">Video</th>
+              <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -247,27 +256,29 @@ export default function WeekBoard({
               <tr key={d.id} className="border-t border-white/5 hover:bg-white/5">
                 <td className="px-3 py-2 text-white/50">{d.sheet_id}</td>
                 <td className="px-3 py-2">
-                  <div className="truncate">{d.hook_line}</div>
-                  <div className="text-xs text-white/40">{d.family} · {d.hook_angle}</div>
+                  <div className="truncate" title={d.hook_line ?? undefined}>{d.hook_line}</div>
+                  <div className="truncate text-xs text-white/40">{d.family} · {d.hook_angle}</div>
                 </td>
                 <td className="px-3 py-2">
-                  <select value={d.assignee_id ?? ""} onChange={(e) => patchDeliverable(d.id, { assignee_id: e.target.value })} className={sel}>
+                  <select value={d.assignee_id ?? ""} onChange={(e) => patchDeliverable(d.id, { assignee_id: e.target.value })} className={`${sel} w-full`}>
                     <option value="">—</option>
                     {people.map((p) => <option key={p.id} value={p.id}>{p.name ?? "user"} ({p.role})</option>)}
                   </select>
                 </td>
                 <td className="px-3 py-2">
-                  <input type="date" value={d.due_date ?? ""} onChange={(e) => patchDeliverable(d.id, { due_date: e.target.value })} className={sel} />
+                  <input type="date" value={d.due_date ?? ""} onChange={(e) => patchDeliverable(d.id, { due_date: e.target.value })} className={`${sel} w-full`} />
                 </td>
                 <td className="px-3 py-2">
-                  <select value={d.production_status} onChange={(e) => patchDeliverable(d.id, { production_status: e.target.value })} className={`${sel} ${STATUS_STYLE[d.production_status] ?? ""}`}>
+                  <select value={d.production_status} onChange={(e) => patchDeliverable(d.id, { production_status: e.target.value })} className={`${sel} w-full ${STATUS_STYLE[d.production_status] ?? ""}`}>
                     {PROD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
-                <td className="px-3 py-2">{d.has_video ? <span className="text-emerald-400">✓</span> : <span className="text-white/30">—</span>}</td>
+                <td className="px-3 py-2 text-center">{d.has_video ? <span className="text-emerald-400">✓</span> : <span className="text-white/30">—</span>}</td>
                 <td className="px-3 py-2">
-                  <Link href={`/creatives/${d.concept_id}`} className="text-emerald-400 hover:underline">Open</Link>
-                  <button onClick={() => removeDeliverable(d.id)} className="ml-3 text-white/30 hover:text-red-300">✕</button>
+                  <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                    <Link href={`/creatives/${d.concept_id}`} className="text-emerald-400 hover:underline">Open</Link>
+                    <button onClick={() => removeDeliverable(d.id)} className="text-white/30 hover:text-red-300" aria-label="Remove from cycle">✕</button>
+                  </div>
                 </td>
               </tr>
             ))}
