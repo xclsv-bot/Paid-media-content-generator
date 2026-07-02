@@ -131,7 +131,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {videos.map((v) => <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} />)}
+                {videos.map((v) => <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} canDelete={staff} />)}
               </div>
             )}
             {staff && <div className="mt-3"><VideoUploader creativeId={creative.id} /></div>}
