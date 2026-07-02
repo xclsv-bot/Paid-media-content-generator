@@ -46,7 +46,7 @@ export default async function ThisWeekPage({
     const { data: delivData } = await supabase
       .from("deliverables")
       .select(
-        "id, concept_id, assignee_id, due_date, production_status, creatives(sheet_id, hook_line, hook_angle, concept_families(name))",
+        "id, concept_id, assignee_id, due_date, production_status, creatives(sheet_id, ad_name, hook_line, hook_angle, concept_families(name))",
       )
       .eq("cycle_id", selected.id);
 
@@ -58,6 +58,7 @@ export default async function ThisWeekPage({
       production_status: string;
       creatives: {
         sheet_id: string | null;
+        ad_name: string | null;
         hook_line: string | null;
         hook_angle: string | null;
         concept_families: unknown;
@@ -79,6 +80,7 @@ export default async function ThisWeekPage({
       id: r.id,
       concept_id: r.concept_id,
       sheet_id: r.creatives?.sheet_id ?? null,
+      ad_name: r.creatives?.ad_name ?? null,
       family: famName(r.creatives?.concept_families),
       hook_line: r.creatives?.hook_line ?? null,
       hook_angle: r.creatives?.hook_angle ?? null,

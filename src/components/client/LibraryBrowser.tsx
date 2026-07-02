@@ -39,7 +39,7 @@ export default function LibraryBrowser({
         if (want && it.facets[key] !== want) return false;
       }
       if (needle) {
-        const hay = `${it.hookLine ?? ""} ${it.familyName ?? ""} ${it.videos.map((v) => v.fileName).join(" ")}`.toLowerCase();
+        const hay = `${it.adName ?? ""} ${it.hookLine ?? ""} ${it.familyName ?? ""} ${it.videos.map((v) => v.fileName).join(" ")}`.toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
@@ -63,7 +63,7 @@ export default function LibraryBrowser({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search content…"
+            placeholder="Search by ad name, hook, or concept…"
             className="flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/90 placeholder:text-white/35"
           />
           {activeCount > 0 && (

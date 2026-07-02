@@ -16,6 +16,7 @@ export type Deliverable = {
   id: string;
   concept_id: string;
   sheet_id: string | null;
+  ad_name: string | null;
   family: string | null;
   hook_line: string | null;
   hook_angle: string | null;
@@ -258,6 +259,9 @@ export default function WeekBoard({
                 <td className="px-3 py-2">
                   <div className="truncate" title={d.hook_line ?? undefined}>{d.hook_line}</div>
                   <div className="truncate text-xs text-white/40">{d.family} · {d.hook_angle}</div>
+                  {d.ad_name && (
+                    <div className="mt-0.5 truncate font-mono text-[10.5px] text-white/35" title={d.ad_name}>{d.ad_name}</div>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <select value={d.assignee_id ?? ""} onChange={(e) => patchDeliverable(d.id, { assignee_id: e.target.value })} className={`${sel} w-full`}>

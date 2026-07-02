@@ -1,6 +1,7 @@
 import Link from "next/link";
 import VideoAssetCard from "@/components/VideoAssetCard";
 import ReviewCard, { type ReviewComment } from "@/components/ReviewCard";
+import AdNameTag from "@/components/AdNameTag";
 import type { ContentItem } from "@/lib/client/data";
 import { usd } from "@/lib/client/format";
 
@@ -43,6 +44,8 @@ export default function ContentCard({
           {item.approval}
         </span>
       </div>
+
+      {item.adName && <AdNameTag name={item.adName} className="mt-2" />}
 
       {chips.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
