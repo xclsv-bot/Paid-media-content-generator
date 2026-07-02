@@ -22,9 +22,13 @@ export default function ContentCard({
   comments: ReviewComment[];
 }) {
   const cpt = item.perf?.cpt != null ? Number(item.perf.cpt) : null;
-  const chips = [item.facets.family, item.facets.angle, item.facets.format, item.facets.sport].filter(
-    Boolean,
-  ) as string[];
+  const chips = [
+    item.facets.family,
+    item.facets.theme,
+    item.facets.angle,
+    item.facets.sport,
+    item.facets.format,
+  ].filter(Boolean) as string[];
 
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">

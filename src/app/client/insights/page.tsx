@@ -24,6 +24,7 @@ export default async function ClientInsights() {
 
   const overall = rollupBy(rows(() => "all"), targetFor)[0] ?? null;
   const byFamily = rollupBy(rows((i) => i.familyName), targetFor).filter((r) => r.results > 0);
+  const byTheme = rollupBy(rows((i) => i.facets.theme), targetFor).filter((r) => r.results > 0);
   const byAngle = rollupBy(rows((i) => i.facets.angle), targetFor).filter((r) => r.results > 0);
 
   const totalResults = overall?.results ?? 0;
@@ -73,6 +74,8 @@ export default async function ClientInsights() {
 
           {/* By concept */}
           <RollupTable title="By concept" rows={byFamily} target={targetDollars} />
+          {/* By theme (from the naming convention) */}
+          <RollupTable title="By theme" rows={byTheme} target={targetDollars} />
           {/* By angle */}
           <RollupTable title="By angle" rows={byAngle} target={targetDollars} />
 
