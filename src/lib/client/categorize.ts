@@ -1,30 +1,35 @@
 // ────────────────────────────────────────────────────────────────────────────
 // Content categorization for the client library.
 //
-// The client gave (will give) us a naming convention for their asset files/ad
-// names. Until that lands, we categorize off the structured fields we already
-// hold on each creative (family, angle, format, sport, archetype). When the
-// convention arrives, fill in `parseNamingConvention()` — it's the ONLY place
-// that needs to change; the rest of the library reads `categorize()`.
+// The client's Meta ad/file naming convention is a ` _ `-delimited taxonomy:
+//   Brand _ Advertiser _ Sport _ Format _ Talent _ Theme _ Date
+//   e.g. "XCLSV _ XCLSV _ MLB _ Video _ NoFace _ Information _ 6.25.26"
+// `parseNamingConvention()` decodes it into facets; `categorize()` layers those
+// over the structured DB fields (name wins where present). This is the ONLY
+// place that needs to change if the convention evolves.
 // ────────────────────────────────────────────────────────────────────────────
 
 export type Facets = {
   family: string | null;
   angle: string | null;
-  format: string | null;
+  theme: string | null; // from the naming convention (Information / Winning / …)
   sport: string | null;
+  format: string | null;
+  talent: string | null; // Face / NoFace
   archetype: string | null;
 };
 
 // The dimensions the library filter bar exposes, in display order.
-export const FACET_KEYS = ["family", "angle", "format", "sport", "archetype"] as const;
+export const FACET_KEYS = ["family", "angle", "theme", "sport", "format", "talent", "archetype"] as const;
 export type FacetKey = (typeof FACET_KEYS)[number];
 
 export const FACET_LABELS: Record<FacetKey, string> = {
   family: "Concept",
   angle: "Angle",
-  format: "Format",
+  theme: "Theme",
   sport: "Sport",
+  format: "Format",
+  talent: "Talent",
   archetype: "Audience",
 };
 
@@ -39,11 +44,18 @@ export type Categorizable = {
   file_name?: string | null;
 };
 
-// Placeholder for the client's file/ad naming convention. Returns whatever
-// facets the encoded name reveals; today it's a no-op (nothing encoded yet).
-// Example future convention: "PARLAY_UNDERDOG_NBA_UGC_v3" → tokens by "_".
-export function parseNamingConvention(_name: string | null | undefined): Partial<Facets> {
-  return {};
+// What the encoded name can reveal (a subset of Facets).
+type NamedFacets = Partial<Pick<Facets, "sport" | "format" | "talent" | "theme">>;
+
+// Decode the ` _ `-delimited convention. Tokens by position (0-indexed):
+//   0 Brand · 1 Advertiser · 2 Sport · 3 Format · 4 Talent · 5 Theme · 6 Date
+// Date is optional (some cuts omit it), so we key off the fixed left tokens.
+export function parseNamingConvention(name: string | null | undefined): NamedFacets {
+  if (!name) return {};
+  const parts = name.split(/\s*_\s*/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 6) return {}; // not enough tokens to trust the encoding
+  const [, , sport, format, talent, theme] = parts;
+  return { sport, format, talent, theme };
 }
 
 const clean = (v: string | null | undefined): string | null => {
@@ -51,16 +63,19 @@ const clean = (v: string | null | undefined): string | null => {
   return t.length ? t : null;
 };
 
-// Resolve a creative's facets: the encoded name (once we parse it) wins, then
-// we fall back to the structured DB fields.
+// Resolve a creative's facets: the encoded name wins for the dimensions it
+// carries (sport/format/talent/theme); the structured DB fields fill the rest
+// and back up any token the name doesn't encode.
 export function categorize(c: Categorizable): Facets {
-  const fromName = parseNamingConvention(c.ad_name ?? c.file_name);
+  const n = parseNamingConvention(c.ad_name ?? c.file_name);
   return {
-    family: clean(fromName.family) ?? clean(c.concept_family),
-    angle: clean(fromName.angle) ?? clean(c.hook_angle),
-    format: clean(fromName.format) ?? clean(c.format),
-    sport: clean(fromName.sport) ?? clean(c.sport),
-    archetype: clean(fromName.archetype) ?? clean(c.archetype),
+    family: clean(c.concept_family),
+    angle: clean(c.hook_angle),
+    theme: clean(n.theme),
+    sport: clean(n.sport) ?? clean(c.sport),
+    format: clean(n.format) ?? clean(c.format),
+    talent: clean(n.talent),
+    archetype: clean(c.archetype),
   };
 }
 
