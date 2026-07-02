@@ -24,3 +24,40 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
           SUPABASE_SERVICE_ROLE_KEY: dummy-service-role-key
+
+  db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: app
+    steps:
+      - uses: actions/checkout@v4
+      # Stand up Supabase's auth/storage/role objects so the real migrations apply.
+      - name: Supabase shim
+        run: psql -v ON_ERROR_STOP=1 -f ci/supabase-shim.sql
+      # A-2: apply every migration in filename order; any error fails the job.
+      - name: Apply migrations in order
+        run: |
+          for f in supabase/migrations/*.sql; do
+            echo "== applying $f =="
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      # A-1: exercise the RLS policies as each role; a failed assertion fails CI.
+      - name: RLS / authorization tests
+        run: psql -v ON_ERROR_STOP=1 -f ci/rls_tests.sql

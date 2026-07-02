@@ -11,8 +11,12 @@ can begin.
 Two quick redundancies from the architecture review are also fixed here: `getCurrentUser`
 is deduped per request with React `cache()` (`src/lib/auth.ts`), and the concept-brief field
 reading `creatives.status` was relabeled **"Concept status"** so it no longer collides with a
-deliverable's `production_status`. The **A-1 … A-7** items near the end are the remaining
-architecture-review follow-ups and are **not yet started**.
+deliverable's `production_status`. The **A-3 … A-7** items near the end are the remaining architecture-review
+follow-ups and are **not yet started**. **A-1 (RLS/authz tests) and A-2 (migration
+enforcement in CI) now have an implementation on this branch** — `ci/supabase-shim.sql`,
+`ci/rls_tests.sql`, and a `db` job in `.github/workflows/ci.yml` — pending their first CI
+run to validate (they could not be run in the authoring environment, which had no
+Postgres/Docker).
 
 ## How to read an item
 - **Files** — the exact files you'll touch (with line numbers as of this writing; grep
