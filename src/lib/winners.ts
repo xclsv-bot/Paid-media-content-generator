@@ -2,7 +2,7 @@
 // worth caching for reuse, plus a rank score.
 //
 // Builds directly on the existing performance verdict (Hit = CPT <= target,
-// src/lib/meta/perf.ts). For sportsbook clients `results` = trials (first
+// src/lib/metrics/perf.ts). For sportsbook clients `results` = trials (first
 // deposits/registrations), so CPT is cost-per-trial. A raw Hit isn't enough to
 // call something "proven": a creative that got 1 trial at $5 shows a stellar $5
 // CPT purely by small-sample luck. So a strong performer must ALSO clear a

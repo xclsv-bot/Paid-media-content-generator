@@ -5,7 +5,7 @@ export type AppUser = {
   id: string;
   email: string;
   name: string | null;
-  role: "admin" | "editor" | "client_viewer" | "creator";
+  role: "admin" | "editor" | "creator" | "client_viewer";
   org: "XCLSV" | "Outlier";
 };
 
@@ -28,20 +28,8 @@ export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
     .single();
 
   return (profile as AppUser) ?? null;
-})
+});
 
 export function isStaff(u: AppUser | null): boolean {
   return !!u && u.org === "XCLSV" && (u.role === "admin" || u.role === "editor");
-}
-
-// A restricted creator (assigned-deliverable scope). Never staff.
-export function isCreator(u: AppUser | null): boolean {
-  return !!u && u.role === "creator";
-}
-
-// Who may upload a video / register a VideoAsset. Staff for any concept; a
-// creator only for concepts assigned to them — the per-row check is enforced by
-// RLS (va_creator_write / creatives_creator_read), this is just the coarse gate.
-export function canUploadVideo(u: AppUser | null): boolean {
-  return isStaff(u) || isCreator(u);
 }

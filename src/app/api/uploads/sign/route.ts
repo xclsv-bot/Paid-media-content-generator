@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, canUploadVideo } from "@/lib/auth";
+import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { buildStoragePath, createSignedUpload } from "@/lib/storage";
 
 // POST /api/uploads/sign  { creativeId, fileName, versionLabel? }
-// Staff or an assigned creator. Returns a one-time signed upload target the
-// browser uploads to. Which creative a creator may target is enforced by RLS on
-// the visibility query below, not by this coarse gate.
+// Staff, or a creator assigned to this concept (RLS on the creative scopes it).
+// Returns a one-time signed upload target the browser uploads to.
 export async function POST(req: Request) {
   const user = await getCurrentUser();
-  if (!canUploadVideo(user)) {
+  if (!user || (!isStaff(user) && user.role !== "creator")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

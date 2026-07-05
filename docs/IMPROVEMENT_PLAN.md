@@ -18,6 +18,15 @@ enforcement in CI) now have an implementation on this branch** — `ci/supabase-
 migrations -> RLS-tests pipeline on a throwaway Postgres 16 (all assertions pass), and
 they also run in the CI `db` job on every PR.
 
+> **Post-merge note (main reconciliation).** `main` evolved independently while this
+> branch was open: the Meta CSV integration was **removed** (performance now comes from
+> weekly report metrics via `creative_metrics` / migration `0011`), and main shipped its
+> own creator enablement (Creator queue, PR #8). Consequences for this plan: P-5's Meta
+> import fixes and P-6's CSV-parser tests were dropped with the feature (the perf-math
+> tests survive at `src/lib/metrics/perf.test.ts`); P-1/P-2/P-3 are superseded by main's
+> equivalents; our migrations were renumbered `0012`–`0014`. File/line references in the
+> items below predate the merge — re-grep before acting on them.
+
 ## How to read an item
 - **Files** — the exact files you'll touch (with line numbers as of this writing; grep
   to re-confirm before editing).

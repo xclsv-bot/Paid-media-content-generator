@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { isAuthorizedAgent, isAuthorizedCron } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { defaultTargetCents } from "@/lib/meta/perf";
+import { defaultTargetCents } from "@/lib/metrics/perf";
 import { evaluateWinner } from "@/lib/winners";
 
 // Recompute the Winners Cache from current performance: evaluate every creative
