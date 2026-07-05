@@ -14,6 +14,7 @@ export default async function AppNav() {
         <NavLink href="/ideas">Ideas</NavLink>
         {staff && <NavLink href="/this-week">This Week</NavLink>}
         {staff && <NavLink href="/performance">Performance</NavLink>}
+        {staff && <NavLink href="/winners">Winners</NavLink>}
         {staff && <NavLink href="/import">Import</NavLink>}
         <span className="ml-auto text-white/40">
           {user.name ?? user.email} · {user.role}

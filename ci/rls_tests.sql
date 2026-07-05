@@ -37,6 +37,11 @@ insert into public.deliverables (id, cycle_id, concept_id, assignee_id) values
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
    '33333333-3333-3333-3333-333333333333');
 
+-- content_cache fixtures: one Outlier winner, one XCLSV winner (org isolation)
+insert into public.content_cache (creative_id, client_org, score, results, spend_cents) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Outlier', 5.0, 50, 500000),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'XCLSV',   4.0, 40, 400000);
+
 -- ============================================================================
 -- Assertions
 -- ============================================================================
@@ -132,6 +137,19 @@ begin
     when insufficient_privilege then
       raise notice 'ok - creator2 blocked from uploading video for unassigned concept';
   end;
+end $$;
+
+-- 8) content_cache: a client sees only its own org's winners.
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222"}', true);
+  set local role authenticated;
+  select count(*) into n from public.content_cache where creative_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  if n <> 1 then raise exception 'FAIL: client cannot see its own winner (got %)', n; end if;
+  select count(*) into n from public.content_cache where creative_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  if n <> 0 then raise exception 'FAIL: client can see another org''s winner (got %)', n; end if;
+  raise notice 'ok - content_cache: winners are org-scoped';
 end $$;
 
 \echo 'All RLS assertions passed.'
