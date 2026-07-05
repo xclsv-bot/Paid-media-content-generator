@@ -48,8 +48,8 @@ export function evaluateWinner(
   if (targetCents == null) {
     return { qualifies: false, reason: "no CPT target set", score: null };
   }
-  if (perf.cpt == null || perf.results <= 0) {
-    return { qualifies: false, reason: "no conversions yet", score: null };
+  if (perf.cpt == null || !Number.isFinite(perf.cpt) || perf.cpt <= 0 || perf.results <= 0) {
+    return { qualifies: false, reason: "no usable CPT / conversions yet", score: null };
   }
   const targetDollars = targetCents / 100;
   if (perf.cpt > targetDollars) {

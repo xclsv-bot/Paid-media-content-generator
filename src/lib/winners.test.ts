@@ -35,6 +35,11 @@ describe("evaluateWinner", () => {
     expect(evaluateWinner({ ...base, spend: 500, results: 0, cpt: null }, 1000).qualifies).toBe(false);
   });
 
+  it("rejects a non-positive or non-finite CPT (divide-by-zero guard)", () => {
+    expect(evaluateWinner({ ...base, spend: 500, results: 50, cpt: 0 }, 1000).qualifies).toBe(false);
+    expect(evaluateWinner({ ...base, spend: 500, results: 50, cpt: NaN }, 1000).qualifies).toBe(false);
+  });
+
   it("scores more efficient and higher-volume winners above weaker ones", () => {
     const strong = evaluateWinner({ ...base, spend: 2000, results: 200, cpt: 5 }, 1000); // 2x under, big volume
     const weak = evaluateWinner({ ...base, spend: 200, results: 12, cpt: 9.5 }, 1000); // barely under, low volume

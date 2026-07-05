@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Row = {
   creative_id: string;
+  client_org: string;
   score: number;
   cpt_cents: number | null;
   results: number;
@@ -31,7 +32,7 @@ export default async function WinnersPage() {
   const { data } = await supabase
     .from("content_cache")
     .select(
-      "creative_id, score, cpt_cents, results, spend_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line, sheet_id), concept_families(name)",
+      "creative_id, client_org, score, cpt_cents, results, spend_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line, sheet_id), concept_families(name)",
     )
     .order("score", { ascending: false });
 
@@ -73,6 +74,7 @@ export default async function WinnersPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-white/5 text-white/60">
                 <tr>
+                  {staff && <th className="px-3 py-2">Org</th>}
                   <th className="px-3 py-2">Concept</th>
                   <th className="px-3 py-2">Family</th>
                   <th className="px-3 py-2">Hook angle</th>
@@ -88,6 +90,7 @@ export default async function WinnersPage() {
                   const fam = one(r.concept_families);
                   return (
                     <tr key={r.creative_id} className="border-t border-white/5">
+                      {staff && <td className="px-3 py-2 text-white/50">{r.client_org}</td>}
                       <td className="px-3 py-2">
                         <Link href={`/creatives/${r.creative_id}`} className="text-sky-300 hover:underline">
                           {c?.hook_line || `#${c?.sheet_id ?? ""}`}

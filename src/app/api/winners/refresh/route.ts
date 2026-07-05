@@ -65,12 +65,14 @@ async function recompute(): Promise<{ evaluated: number; cached: number } | { er
     if (error) return { error: error.message };
   }
 
-  const keepIds = winners.map((w) => w.creative_id as string);
-  const prune =
-    keepIds.length > 0
-      ? admin.from("content_cache").delete().not("creative_id", "in", `(${keepIds.join(",")})`)
-      : admin.from("content_cache").delete().not("creative_id", "is", null);
-  const { error: delErr } = await prune;
+  // Prune anything not refreshed this run: the winners just upserted all carry
+  // THIS run's captured_at, so any row with an older captured_at is a former
+  // winner that no longer qualifies. O(1) in URL size (vs. embedding every id),
+  // and safe under concurrency — an older run can't delete a newer run's rows.
+  const { error: delErr } = await admin
+    .from("content_cache")
+    .delete()
+    .lt("captured_at", capturedAt);
   if (delErr) return { error: delErr.message };
 
   return { evaluated, cached: winners.length };
