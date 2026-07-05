@@ -1,5 +1,5 @@
 {
   "crons": [
-    { "path": "/api/winners/refresh", "schedule": "0 9 * * 1" }
+    { "path": "/api/winners/refresh", "schedule": "0 9 * * *" }
   ]
 }

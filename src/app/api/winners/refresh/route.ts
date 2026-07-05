@@ -90,7 +90,7 @@ export async function POST(req: Request) {
   return respond(await recompute());
 }
 
-// GET /api/winners/refresh — scheduled trigger. Vercel Cron hits this weekly and
+// GET /api/winners/refresh — scheduled trigger. Vercel Cron hits this daily and
 // presents `Authorization: Bearer $CRON_SECRET`; the agent key is also accepted.
 export async function GET(req: Request) {
   if (!isAuthorizedCron(req) && !isAuthorizedAgent(req)) {
