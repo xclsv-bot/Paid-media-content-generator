@@ -21,7 +21,7 @@ export function minResults(): number {
   return envInt("WINNER_MIN_RESULTS", 10); // trials needed to trust the CPT
 }
 export function minSpendCents(): number {
-  return envInt("WINNER_MIN_SPEND_CENTS", 10000); // $100 minimum spend
+  return envInt("WINNER_MIN_SPEND_CENTS", 5000); // $50 minimum spend
 }
 
 export type PerfInput = {

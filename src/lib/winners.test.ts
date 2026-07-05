@@ -25,7 +25,7 @@ describe("evaluateWinner", () => {
   });
 
   it("rejects when spend is below the minimum", () => {
-    const v = evaluateWinner({ ...base, spend: 50, results: 20, cpt: 2.5 }, 1000);
+    const v = evaluateWinner({ ...base, spend: 30, results: 20, cpt: 1.5 }, 1000);
     expect(v.qualifies).toBe(false);
     expect(v.reason).toMatch(/spend/);
   });
