@@ -53,12 +53,19 @@ designed yet; flag before onboarding a second paying client, since "no ramp-up
 period" was called out as the bar to clear (must already work well on day one
 for client #2).
 
-## Meta Ads API — confirmed priority, not yet live
-Matches `LEARNING_LOOP.md`'s open item exactly: today's CSV import is the
-stopgap; the ask from this meeting is the live **Marketing API** connection so
-performance data (CPA/CPT, which hooks/CTAs win) flows back automatically
-instead of a manual export/import cycle. No new decision here — just confirms
-this is the highest-leverage next build, consistent with the existing roadmap.
+## Meta Ads API — reversed since this meeting, not a pending build
+**Correction (as of the codebase's current state):** the ask from this meeting
+was a live **Marketing API** connection so performance data flows back
+automatically instead of a manual export/import cycle. Since this doc was
+first written, the team explicitly reversed the other direction — migration
+`0011_report_metrics.sql` dropped the Meta API integration entirely
+(`meta_ads`/`meta_insights_daily` tables removed) in favor of a manually
+uploaded weekly report (`creative_metrics`), per the commit "Remove Meta
+integration; performance now sourced from weekly report metrics." This is the
+second time the project has tried and backed out of a live third-party
+integration (see the organic-signal design note below) — treat "build the live
+API" as a deliberately deprioritized option, not a queued task, unless the
+team decides to revisit that tradeoff.
 
 ## Packaging — subscription product, sold beyond sports betting
 Validated framing for go-to-market (not a code change): "Outlier" is the design
@@ -78,11 +85,17 @@ No action needed in this repo.
 1. **Creator assignment email notification** — send an email when a
    deliverable is assigned (or reassigned), linking into `/queue`. Smallest,
    most concrete unbuilt ask from the call.
-2. **Organic content signal** — open question, not designed: worth a follow-up
-   conversation on what "scrape organic performance" would even mean as a data
-   source before committing to a design.
+2. **Organic content signal** — designed and built: a new `organic_signals`
+   table (staff-curated via `/signals` or the `/api/agent/signals` bearer-token
+   seam, human-review gated) grounds Ideate as an explore-only input, never
+   conflated with proven CPT performance. Deliberately global (no org column),
+   matching `concept_families`/`hook_angles`/`learnings` — see item 3.
 3. **Cross-client learnings layer** — design before onboarding client #2, so
    the flywheel thesis (context compounds across clients) has somewhere to
-   live without violating per-client RLS isolation.
-4. **Live Meta Marketing API sync** — already tracked in `LEARNING_LOOP.md`;
-   this meeting just confirms it's the priority, not a new requirement.
+   live without violating per-client RLS isolation. `organic_signals` was
+   built global-first specifically to keep this option open at zero cost;
+   `creatives`/`cycles`/`deliverables` remain genuinely org-scoped via the
+   `org_type` enum and still need the harder multi-tenancy redesign
+   (enum → real `organizations` table) before a second client can onboard.
+4. **Live Meta Marketing API sync** — **stale, corrected above**: the codebase
+   has since reversed away from live API integration entirely, not toward it.

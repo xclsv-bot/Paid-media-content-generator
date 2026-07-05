@@ -26,6 +26,7 @@ export default async function AppNav() {
           <>
             <NavLink href="/ideas">Ideas</NavLink>
             {staff && <NavLink href="/ideate">Ideate</NavLink>}
+            {staff && <NavLink href="/signals">Signals</NavLink>}
             {staff && <NavLink href="/this-week">This Week</NavLink>}
             <NavLink href="/review">Review</NavLink>
             {staff && <NavLink href="/performance">Performance</NavLink>}

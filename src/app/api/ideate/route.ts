@@ -4,6 +4,7 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
+import { latestOrganicSignals, organicSignalsPromptBlock } from "@/lib/loop/organic";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
   }
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
   const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
+  const organicBlock = organicSignalsPromptBlock(await latestOrganicSignals(supabase));
 
   const sourceList = (sources ?? [])
     .map((s) => `• [${s.type ?? "ref"}] ${s.name ?? ""}${s.note ? ` — ${s.note}` : ""}`)
@@ -140,7 +142,9 @@ Use the live signals: lean into the pattern behind the top performers, diagnose 
 
 ${learnBlock || ""}
 
-When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
+${organicBlock || ""}
+
+When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. If a concept is inspired by organic signal rather than the live CPT data above, say so explicitly in the hypothesis (e.g. "testing whether this organically-trending hook clears the $30 CPT gate") — organic signal is a hypothesis source, never a substitute for the CPT gate. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
   const apiMessages = messages.map((m) => ({
     role: m.role === "ai" ? ("assistant" as const) : ("user" as const),
