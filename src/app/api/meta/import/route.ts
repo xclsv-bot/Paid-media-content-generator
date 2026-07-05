@@ -40,12 +40,13 @@ export async function POST(req: Request) {
   }
   const adNames = [...adIdByName.keys()];
 
-  // 1) Existing links.
+  // 1) Existing links — scoped to THIS import's ad account (meta_ads is unique on
+  // (account, ad_name), so the same name can exist under another account).
   const linkByName = new Map<string, string>(); // adName -> meta_ad_id
-  const { data: existing } = await supabase
-    .from("meta_ads")
-    .select("ad_name, meta_ad_id")
-    .in("ad_name", adNames);
+  const existingQ = supabase.from("meta_ads").select("ad_name, meta_ad_id").in("ad_name", adNames);
+  const { data: existing } = await (adAccountId
+    ? existingQ.eq("ad_account_id", adAccountId)
+    : existingQ.is("ad_account_id", null));
   for (const a of existing ?? []) {
     if (a.ad_name && a.meta_ad_id) linkByName.set(a.ad_name, a.meta_ad_id);
   }
@@ -80,11 +81,20 @@ export async function POST(req: Request) {
 
     if (newLinks.length > 0) {
       const { error: linkErr } = await supabase.from("meta_ads").insert(newLinks);
-      // 23505 = a concurrent import already created some of these links; that's
-      // fine, the re-select below recovers them. Any other error is real — don't
-      // pretend these names matched.
-      if (linkErr && linkErr.code !== "23505") {
-        return NextResponse.json({ error: linkErr.message }, { status: 500 });
+      if (linkErr) {
+        if (linkErr.code === "23505") {
+          // A concurrent import collided on ONE name and Postgres aborted the
+          // whole multi-row insert. Re-insert row-by-row so the non-colliding new
+          // links still persist; ignore per-row duplicates, surface anything else.
+          for (const row of newLinks) {
+            const { error: rowErr } = await supabase.from("meta_ads").insert(row);
+            if (rowErr && rowErr.code !== "23505") {
+              return NextResponse.json({ error: rowErr.message }, { status: 500 });
+            }
+          }
+        } else {
+          return NextResponse.json({ error: linkErr.message }, { status: 500 });
+        }
       }
     }
 
@@ -93,10 +103,10 @@ export async function POST(req: Request) {
     // concurrent import created). meta_ads is unique on the functional index
     // (coalesce(ad_account_id,''), ad_name), so we reconcile by re-select rather
     // than onConflict.
-    const { data: linksNow } = await supabase
-      .from("meta_ads")
-      .select("ad_name, meta_ad_id")
-      .in("ad_name", adNames);
+    const recoverQ = supabase.from("meta_ads").select("ad_name, meta_ad_id").in("ad_name", adNames);
+    const { data: linksNow } = await (adAccountId
+      ? recoverQ.eq("ad_account_id", adAccountId)
+      : recoverQ.is("ad_account_id", null));
     linkByName.clear();
     for (const a of linksNow ?? []) {
       if (a.ad_name && a.meta_ad_id) linkByName.set(a.ad_name, a.meta_ad_id);

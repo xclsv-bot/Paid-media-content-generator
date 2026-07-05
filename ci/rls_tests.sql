@@ -152,4 +152,22 @@ begin
   raise notice 'ok - content_cache: winners are org-scoped';
 end $$;
 
+-- 9) 0007: at most one Active cycle PER ORG; a different org may also be Active.
+do $$
+begin
+  insert into public.cycles (label, starts_on, ends_on, client_org, status)
+    values ('Active-Outlier', '2026-02-01', '2026-02-07', 'Outlier', 'Active');
+  -- A different org can be Active at the same time (per-org, not global).
+  insert into public.cycles (label, starts_on, ends_on, client_org, status)
+    values ('Active-XCLSV', '2026-02-01', '2026-02-07', 'XCLSV', 'Active');
+  -- A SECOND Active cycle in the SAME org must be rejected by cycles_one_active.
+  begin
+    insert into public.cycles (label, starts_on, ends_on, client_org, status)
+      values ('Active-Outlier-2', '2026-02-08', '2026-02-14', 'Outlier', 'Active');
+    raise exception 'FAIL: two Active cycles allowed in the same org';
+  exception when unique_violation then
+    raise notice 'ok - at most one Active cycle per org (cross-org Active allowed)';
+  end;
+end $$;
+
 \echo 'All RLS assertions passed.'
