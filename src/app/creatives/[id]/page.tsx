@@ -156,6 +156,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
               conceptId={creative.id}
               initial={{
                 family: family?.name ?? "",
+                ad_name: creative.ad_name ?? "",
                 hook_line: creative.hook_line ?? "",
                 hypothesis: creative.hypothesis ?? "",
                 content_summary: creative.content_summary ?? "",

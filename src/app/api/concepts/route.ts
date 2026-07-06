@@ -43,6 +43,7 @@ export async function POST(req: Request) {
     .from("creatives")
     .insert({
       concept_family_id,
+      ad_name: b.ad_name || null,
       hook_line: b.hook_line,
       hypothesis: b.hypothesis || null,
       content_summary: b.content_summary || null,
