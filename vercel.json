@@ -1,8 +1,6 @@
 {
   "crons": [
-    {
-      "path": "/api/cron/loop",
-      "schedule": "7 14 * * 1"
-    }
+    { "path": "/api/cron/loop", "schedule": "7 14 * * 1" },
+    { "path": "/api/winners/refresh", "schedule": "0 9 * * *" }
   ]
 }

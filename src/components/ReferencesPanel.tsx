@@ -59,7 +59,7 @@ export default function ReferencesPanel({
       const sign = await fetch("/api/references/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conceptId, fileName: file.name }),
+        body: JSON.stringify({ conceptId, fileName: file.name, contentType: file.type }),
       });
       if (!sign.ok) throw new Error((await sign.json()).error);
       const { path, token } = await sign.json();

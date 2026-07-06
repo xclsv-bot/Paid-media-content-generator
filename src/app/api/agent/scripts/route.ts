@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthorizedAgent } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { insertNextScriptVersion } from "@/lib/scripts";
 
 // POST /api/agent/scripts
 // The seam your script-generating agent plugs into. Auth: `Authorization: Bearer <AGENT_API_KEY>`.
@@ -50,29 +51,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Concept not found" }, { status: 404 });
   }
 
-  // Next version number for this concept.
-  const { data: latest } = await admin
-    .from("scripts")
-    .select("version")
-    .eq("concept_id", resolvedId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const version = (latest?.version ?? 0) + 1;
-
-  const { data: script, error } = await admin
-    .from("scripts")
-    .insert({
-      concept_id: resolvedId,
-      body,
-      source: "ai",
-      status: approve ? "approved" : "draft",
-      version,
-      model: model ?? null,
-      context: context ?? null,
-    })
-    .select()
-    .single();
+  // Next version number is computed inside the helper, which retries on the
+  // unique(concept_id, version) collision so concurrent agent posts don't 500.
+  const { data: script, error } = await insertNextScriptVersion(admin, resolvedId, {
+    body,
+    source: "ai",
+    status: approve ? "approved" : "draft",
+    model: model ?? null,
+    context: context ?? null,
+  });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

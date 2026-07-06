@@ -30,6 +30,7 @@ export default async function AppNav() {
             {staff && <NavLink href="/this-week">This Week</NavLink>}
             <NavLink href="/review">Review</NavLink>
             {staff && <NavLink href="/performance">Performance</NavLink>}
+            {staff && <NavLink href="/winners">Winners</NavLink>}
             <NavLink href="/client">Client view</NavLink>
           </>
         )}

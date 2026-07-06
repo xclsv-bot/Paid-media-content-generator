@@ -20,21 +20,50 @@ export async function PATCH(
   }
 
   const supabase = await createClient();
-  if (status === "Active") {
-    await supabase
+
+  // Confirm the cycle exists (and get its org) BEFORE mutating anything — a PATCH
+  // to a bad/deleted id must not demote the live Active cycle and then 500.
+  const { data: target } = await supabase
+    .from("cycles")
+    .select("id, client_org")
+    .eq("id", id)
+    .maybeSingle();
+  if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Demote any other Active cycle IN THE SAME ORG, then promote this one. The
+  // partial unique index cycles_one_active (migration 0007) is per client_org, so
+  // activations in different orgs never collide; on a same-org race (23505) we
+  // retry. Re-activating the already-active cycle is a harmless no-op.
+  const activate = () =>
+    supabase
       .from("cycles")
       .update({ status: "Closed" })
       .eq("status", "Active")
-      .neq("id", id);
+      .eq("client_org", target.client_org)
+      .neq("id", id)
+      .then(() =>
+        supabase.from("cycles").update({ status: "Active" }).eq("id", id).select().maybeSingle(),
+      );
+
+  let result;
+  if (status === "Active") {
+    result = await activate();
+    let attempts = 1;
+    while (result.error?.code === "23505" && attempts < 5) {
+      result = await activate();
+      attempts++;
+    }
+  } else {
+    result = await supabase
+      .from("cycles")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
   }
 
-  const { data, error } = await supabase
-    .from("cycles")
-    .update({ status })
-    .eq("id", id)
-    .select()
-    .single();
-
+  const { data, error } = result;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ cycle: data });
 }
