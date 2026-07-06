@@ -74,6 +74,21 @@ export default function ScriptPanel({
     }
   }
 
+  async function runGenerate() {
+    setBusy(true);
+    setStatus("Writing a first draft from the concept…");
+    try {
+      const { ok, data } = await fetchJson(`/api/concepts/${conceptId}/scripts/generate`, { method: "POST" });
+      if (!ok) throw new Error(String(data.error ?? "Generation failed"));
+      setStatus(null);
+      router.refresh();
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runRevise() {
     if (!latest) return;
     setBusy(true);
@@ -141,7 +156,7 @@ export default function ScriptPanel({
 
       {!latest && !editing && (
         <p className="text-sm text-white/40">
-          No script yet — the agent posts drafts here, or write one manually.
+          No script yet — hit <b className="text-violet-300">Generate script</b> to draft a shoot-ready script from the concept, or write one manually.
         </p>
       )}
 
@@ -162,9 +177,15 @@ export default function ScriptPanel({
         <div className="mt-3 flex flex-wrap gap-2">
           {!editing ? (
             <>
+              {!latest && (
+                <button onClick={runGenerate} disabled={busy}
+                  className="rounded-lg bg-violet-500/90 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50">
+                  ✨ Generate script
+                </button>
+              )}
               <button onClick={() => { setDraft(latest?.body ?? ""); setEditing(true); }}
                 className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10">
-                {latest ? "Edit" : "Write script"}
+                {latest ? "Edit" : "Write manually"}
               </button>
               {latest && (
                 <button onClick={runReview} disabled={busy}
