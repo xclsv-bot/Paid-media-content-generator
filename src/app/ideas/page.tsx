@@ -36,7 +36,10 @@ export default async function IdeasPage() {
       .select(
         "id, sheet_id, hook_line, hook_angle, archetype, sport, idea_status, is_proven, cpt_target_cents, concept_families(name)",
       )
-      .order("sheet_id", { ascending: true }),
+      // Ideate-created concepts have no sheet_id — surface them first (newest
+      // first), then the original slate in its 01..40 order.
+      .order("sheet_id", { ascending: true, nullsFirst: true })
+      .order("created_at", { ascending: false }),
     supabase.from("creative_performance").select("creative_id, cpt, spend"),
     supabase.from("video_assets").select("creative_id"),
   ]);

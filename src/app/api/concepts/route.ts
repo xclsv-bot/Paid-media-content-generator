@@ -60,5 +60,26 @@ export async function POST(req: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ id: data.id }, { status: 201 });
+
+  // Optionally schedule the new concept straight into the active cycle as a
+  // deliverable (the "Add to This Week" action). No active cycle => created in
+  // Ideas only, and we say so.
+  let cycle: { id: string; label: string } | null = null;
+  if (b.add_to_cycle) {
+    const { data: active } = await supabase
+      .from("cycles")
+      .select("id, label")
+      .eq("status", "Active")
+      .order("starts_on", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (active?.id) {
+      const { error: dErr } = await supabase
+        .from("deliverables")
+        .insert({ cycle_id: active.id, concept_id: data.id });
+      if (!dErr) cycle = { id: active.id, label: active.label };
+    }
+  }
+
+  return NextResponse.json({ id: data.id, cycle }, { status: 201 });
 }
