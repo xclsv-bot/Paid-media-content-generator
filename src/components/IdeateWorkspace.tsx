@@ -66,7 +66,7 @@ export default function IdeateWorkspace() {
     }
   }
 
-  async function addToIdeas(mi: number, ci: number) {
+  async function addConcept(mi: number, ci: number, toCycle: boolean) {
     const c = messages[mi].concepts?.[ci];
     if (!c) return;
     const res = await fetch("/api/concepts", {
@@ -81,19 +81,25 @@ export default function IdeateWorkspace() {
         sport: c.sport,
         feature_pillar: c.feature,
         idea_status: "Backlog",
+        add_to_cycle: toCycle,
       }),
     });
     if (!res.ok) {
       flash("Couldn't add concept");
       return;
     }
+    const data = (await res.json().catch(() => ({}))) as { cycle?: { label: string } | null };
     setMessages((msgs) =>
       msgs.map((m, i) =>
         i !== mi ? m : { ...m, concepts: m.concepts?.map((x, j) => (j === ci ? { ...x, _added: true } : x)) },
       ),
     );
     setAdded((n) => n + 1);
-    flash("Added to Ideas ✓");
+    if (toCycle) {
+      flash(data.cycle ? `Added to This Week — ${data.cycle.label} ✓` : "Added to Ideas — no active cycle to schedule into");
+    } else {
+      flash("Added to Ideas ✓");
+    }
   }
 
   function addSource() {
@@ -167,15 +173,24 @@ export default function IdeateWorkspace() {
                       <div className="mb-3.5 border-t border-white/[0.08] pt-3 text-[13.5px] leading-relaxed text-white/80">
                         <span className="font-mono text-[9.5px] tracking-wide text-emerald-300">HYPOTHESIS&nbsp;&nbsp;</span>{c.hypothesis}
                       </div>
-                      <div className="flex gap-2.5">
+                      <div className="flex flex-wrap gap-2.5">
                         <button
                           disabled={c._added}
-                          onClick={() => addToIdeas(mi, ci)}
+                          onClick={() => addConcept(mi, ci, false)}
                           className={`rounded-[9px] px-3.5 py-2 text-[13px] font-semibold ${
                             c._added ? "cursor-default bg-emerald-500/15 text-emerald-300" : "bg-emerald-400 text-black hover:bg-emerald-300"
                           }`}
                         >
-                          {c._added ? "✓ Added to Ideas" : "+ Add to Ideas"}
+                          {c._added ? "✓ Added" : "+ Add to Ideas"}
+                        </button>
+                        <button
+                          disabled={c._added}
+                          onClick={() => addConcept(mi, ci, true)}
+                          className={`rounded-[9px] px-3.5 py-2 text-[13px] font-semibold ${
+                            c._added ? "hidden" : "border border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10"
+                          }`}
+                        >
+                          + Add to This Week
                         </button>
                         <button
                           onClick={() => setComposer(`Refine "${c.hook}": `)}
