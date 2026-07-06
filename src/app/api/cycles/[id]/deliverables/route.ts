@@ -20,6 +20,18 @@ export async function POST(
   }
 
   const supabase = await createClient();
+
+  // A cycle belongs to one org — guard against scheduling a concept from a
+  // different org into it (the picker UI already scopes to the cycle's org;
+  // this is the API-level backstop).
+  const { data: cycle } = await supabase.from("cycles").select("org_id").eq("id", cycleId).maybeSingle();
+  if (!cycle) return NextResponse.json({ error: "Cycle not found" }, { status: 404 });
+  const { data: concepts } = await supabase.from("creatives").select("id, org_id").in("id", conceptIds);
+  const mismatched = (concepts ?? []).filter((c) => c.org_id !== cycle.org_id);
+  if (mismatched.length > 0) {
+    return NextResponse.json({ error: "One or more concepts belong to a different client than this cycle" }, { status: 400 });
+  }
+
   const rows = conceptIds.map((concept_id: string) => ({
     cycle_id: cycleId,
     concept_id,

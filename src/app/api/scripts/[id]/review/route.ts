@@ -52,10 +52,14 @@ export async function POST(
 
   const { data: c } = await supabase
     .from("creatives")
-    .select("hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
+    .select("org_id, hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)")
     .eq("id", script.concept_id)
     .single();
+  if (!c) return NextResponse.json({ error: "Concept not found" }, { status: 404 });
   const fam = Array.isArray(c?.concept_families) ? c?.concept_families[0] : c?.concept_families;
+  const org = Array.isArray(c?.organizations) ? c?.organizations[0] : c?.organizations;
+  const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
+  const clientName = org?.display_name ?? "the client";
 
   const context = [
     `Family: ${fam?.name ?? "—"}`,
@@ -71,14 +75,14 @@ export async function POST(
     c?.compliance_note ? `CONCEPT COMPLIANCE RULE: ${c.compliance_note}` : "",
   ].filter(Boolean).join("\n");
 
-  const system = `You are a strict senior creative director reviewing a short-form video ad script for the Outlier sportsbook-research app. Be exacting — your job is to catch what a fast writer talked itself into, not to be encouraging. Score each criterion 1–10 (10 = excellent, ${PASS_BAR}+ = ships). Reserve 9–10 for genuinely great work.
+  const system = `You are a strict senior creative director reviewing a short-form video ad script for ${clientDesc}. Be exacting — your job is to catch what a fast writer talked itself into, not to be encouraging. Score each criterion 1–10 (10 = excellent, ${PASS_BAR}+ = ships). Reserve 9–10 for genuinely great work.
 
 Rubric:
-${rubricText()}
+${rubricText(clientName)}
 
 Compliance is a hard gate: if the script risks any compliance rule, score compliance below ${PASS_BAR} and list the exact risk in compliance_flags. weaknesses and suggestions must be specific and actionable (quote the line, say the fix) — no generic praise.`;
 
-  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
+  const learnBlock = learningsPromptBlock(await latestLearnings(supabase, c.org_id));
   const systemFull = learnBlock ? `${system}\n\n${learnBlock}` : system;
 
   let client: Anthropic;

@@ -6,6 +6,7 @@ import WeekBoard, {
   type Deliverable,
   type Person,
   type Available,
+  type Organization,
 } from "@/components/WeekBoard";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export default async function ThisWeekPage({
 
   const { data: cyclesData } = await supabase
     .from("cycles")
-    .select("id, label, starts_on, ends_on, target_count, status")
+    .select("id, label, starts_on, ends_on, target_count, status, org_id")
     .order("starts_on", { ascending: false });
   const cycles = (cyclesData ?? []) as Cycle[];
 
@@ -90,10 +91,13 @@ export default async function ThisWeekPage({
       has_video: videoSet.has(r.concept_id),
     }));
 
-    // Concepts not yet in this cycle (for the picker).
+    // Concepts not yet in this cycle (for the picker) — scoped to the cycle's
+    // own org, so staff can't accidentally schedule another client's concept
+    // into this cycle.
     const { data: allConcepts } = await supabase
       .from("creatives")
       .select("id, sheet_id, hook_line, concept_families(name)")
+      .eq("org_id", selected.org_id)
       .order("sheet_id", { ascending: true });
     const inCycle = new Set(conceptIds);
     available = ((allConcepts ?? []) as unknown as Array<{
@@ -117,6 +121,13 @@ export default async function ThisWeekPage({
     .in("role", ["creator", "editor", "admin"]);
   const people = (peopleData ?? []) as Person[];
 
+  const { data: orgsData } = await supabase
+    .from("organizations")
+    .select("id, slug, display_name")
+    .eq("is_agency", false)
+    .order("display_name");
+  const organizations = (orgsData ?? []) as Organization[];
+
   return (
     <main className="mx-auto max-w-6xl p-6">
       <header className="mb-5">
@@ -131,6 +142,7 @@ export default async function ThisWeekPage({
         deliverables={deliverables}
         people={people}
         available={available}
+        organizations={organizations}
       />
     </main>
   );

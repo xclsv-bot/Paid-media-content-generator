@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const supabase = await createClient();
   let q = supabase
     .from("content_cache")
-    .select("creative_id, client_org, score, cpt_cents, results, spend_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line, sheet_id), concept_families(name)")
+    .select("creative_id, org_id, score, cpt_cents, results, spend_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line, sheet_id), concept_families(name), organizations(display_name)")
     .order("score", { ascending: false })
     .limit(limit);
   if (sport) q = q.eq("sport", sport);

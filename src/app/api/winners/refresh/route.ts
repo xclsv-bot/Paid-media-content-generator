@@ -15,7 +15,7 @@ async function recompute(): Promise<{ evaluated: number; cached: number } | { er
       admin.from("creative_performance").select("creative_id, spend, results, cpt, ctr"),
       admin
         .from("creatives")
-        .select("id, client_org, sport, concept_family_id, hook_angle, archetype, cpt_target_cents"),
+        .select("id, org_id, sport, concept_family_id, hook_angle, archetype, cpt_target_cents"),
     ]);
   if (perfErr) return { error: perfErr.message };
   if (cErr) return { error: cErr.message };
@@ -43,7 +43,7 @@ async function recompute(): Promise<{ evaluated: number; cached: number } | { er
     if (!verdict.qualifies) continue;
     winners.push({
       creative_id: c.id,
-      client_org: c.client_org,
+      org_id: c.org_id,
       score: verdict.score,
       cpt_cents: cpt == null ? null : Math.round(cpt * 100),
       results: Math.round(results),

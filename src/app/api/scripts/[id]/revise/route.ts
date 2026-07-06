@@ -46,10 +46,13 @@ export async function POST(
 
   const { data: c } = await supabase
     .from("creatives")
-    .select("hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
+    .select("hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)")
     .eq("id", script.concept_id)
     .single();
   const fam = Array.isArray(c?.concept_families) ? c?.concept_families[0] : c?.concept_families;
+  const org = Array.isArray(c?.organizations) ? c?.organizations[0] : c?.organizations;
+  const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
+  const clientName = org?.display_name ?? "the client";
 
   const feedback = [
     (review?.weaknesses as string[] | null)?.length ? `Weaknesses to fix (weakest first):\n${(review!.weaknesses as string[]).map((w) => `- ${w}`).join("\n")}` : "",
@@ -67,10 +70,10 @@ export async function POST(
     c?.compliance_note ? `CONCEPT COMPLIANCE RULE: ${c.compliance_note}` : "",
   ].filter(Boolean).join("\n");
 
-  const system = `You are a creative director refining a CREATIVE BRIEF for a short-form video creator on the Outlier sportsbook-research app. Rewrite the brief to address the feedback, fixing the weakest points first while keeping what already works. Keep it a BRIEF, not a script: direction, a loose example opener, tone, and guardrails — NOT timed beats, shot lists, or word-for-word voiceover. Preserve the creator's freedom.
+  const system = `You are a creative director refining a CREATIVE BRIEF for a short-form video creator on ${clientDesc}. Rewrite the brief to address the feedback, fixing the weakest points first while keeping what already works. Keep it a BRIEF, not a script: direction, a loose example opener, tone, and guardrails — NOT timed beats, shot lists, or word-for-word voiceover. Preserve the creator's freedom.
 
 Keep the "The concept: / Tone: / Two rules:" shape, a few short paragraphs a creator reads in 30 seconds. Wins are always the outcome of research, never luck; never frame it as picks or guaranteed wins. Stay within the compliance rules. It should still respect the quality bar the finished piece is judged on:
-${rubricText()}
+${rubricText(clientName)}
 
 Return the full revised brief in "body", and a one-line "notes" on what you changed.`;
 

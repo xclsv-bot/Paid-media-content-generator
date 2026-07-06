@@ -16,9 +16,11 @@ export type Learning = {
 export default function LearningsPanel({
   learning,
   canGenerate,
+  orgId,
 }: {
   learning: Learning | null;
   canGenerate: boolean;
+  orgId: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -28,7 +30,11 @@ export default function LearningsPanel({
     setBusy(true);
     setStatus("Analyzing performance…");
     try {
-      const { ok, data } = await fetchJson("/api/learnings/generate", { method: "POST" });
+      const { ok, data } = await fetchJson("/api/learnings/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ org_id: orgId }),
+      });
       if (!ok) throw new Error(String(data.error ?? "Failed"));
       setStatus(null);
       router.refresh();

@@ -6,7 +6,8 @@ export type AppUser = {
   email: string;
   name: string | null;
   role: "admin" | "editor" | "creator" | "client_viewer";
-  org: "XCLSV" | "Outlier";
+  org_id: string;
+  organizations: { slug: string; display_name: string; is_agency: boolean } | null;
 };
 
 // Resolve the signed-in user + their app role/org. Returns null if unauthenticated.
@@ -23,13 +24,17 @@ export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("id, email, name, role, org")
+    .select("id, email, name, role, org_id, organizations(slug, display_name, is_agency)")
     .eq("id", user.id)
     .single();
 
-  return (profile as AppUser) ?? null;
+  if (!profile) return null;
+  const organizations = Array.isArray(profile.organizations)
+    ? profile.organizations[0] ?? null
+    : profile.organizations;
+  return { ...profile, organizations } as AppUser;
 });
 
 export function isStaff(u: AppUser | null): boolean {
-  return !!u && u.org === "XCLSV" && (u.role === "admin" || u.role === "editor");
+  return !!u && !!u.organizations?.is_agency && (u.role === "admin" || u.role === "editor");
 }

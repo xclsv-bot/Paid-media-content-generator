@@ -23,7 +23,9 @@ const INTRO: Msg = {
 
 const chip = "rounded-md border border-white/10 bg-white/[0.05] px-2 py-1 text-[11.5px] text-white/65";
 
-export default function IdeateWorkspace() {
+export type Organization = { id: string; slug: string; display_name: string };
+
+export default function IdeateWorkspace({ organizations }: { organizations: Organization[] }) {
   const [messages, setMessages] = useState<Msg[]>([INTRO]);
   const [sources, setSources] = useState<Source[]>([]);
   const [composer, setComposer] = useState("");
@@ -32,6 +34,7 @@ export default function IdeateWorkspace() {
   const [toast, setToast] = useState<string | null>(null);
   const [showSrc, setShowSrc] = useState(false);
   const [srcDraft, setSrcDraft] = useState({ type: "Transcript", name: "", note: "" });
+  const [orgId, setOrgId] = useState(organizations[0]?.id ?? "");
 
   function flash(t: string) {
     setToast(t);
@@ -40,7 +43,7 @@ export default function IdeateWorkspace() {
 
   async function send() {
     const text = composer.trim();
-    if (!text || busy) return;
+    if (!text || busy || !orgId) return;
     const next = [...messages, { role: "user" as const, text }];
     setMessages(next);
     setComposer("");
@@ -52,6 +55,7 @@ export default function IdeateWorkspace() {
         body: JSON.stringify({
           messages: next.filter((m) => m !== INTRO).map((m) => ({ role: m.role, text: m.text })),
           sources,
+          org_id: orgId,
         }),
       });
       if (!ok) throw new Error(String(data.error ?? "Ideation failed"));
@@ -73,6 +77,7 @@ export default function IdeateWorkspace() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        org_id: orgId,
         family: c.family,
         hook_line: c.hook,
         hypothesis: c.hypothesis,
@@ -114,6 +119,18 @@ export default function IdeateWorkspace() {
     <div className="grid items-start gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">
       {/* sources rail */}
       <aside className="rounded-[14px] border border-white/10 bg-white/[0.025] p-4 lg:sticky lg:top-20">
+        <label className="mb-4 flex flex-col gap-1.5">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-white/45">Client</span>
+          <select
+            value={orgId}
+            onChange={(e) => setOrgId(e.target.value)}
+            className="rounded-[9px] border border-white/[0.12] bg-black/30 px-2.5 py-2 text-sm text-white/85"
+          >
+            {organizations.map((o) => (
+              <option key={o.id} value={o.id}>{o.display_name}</option>
+            ))}
+          </select>
+        </label>
         <div className="mb-3 font-mono text-[11px] uppercase tracking-wider text-white/45">Context the agent uses</div>
         <div className="flex flex-col gap-2">
           {sources.length === 0 && <p className="text-[12.5px] text-white/40">No sources yet.</p>}

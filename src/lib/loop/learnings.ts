@@ -9,12 +9,16 @@ export type Learning = {
   created_at: string;
 };
 
-// The most recent learnings snapshot, or null (also null if the table doesn't
-// exist yet — callers treat "no learnings" as a no-op, so this never throws).
-export async function latestLearnings(supabase: SupabaseClient): Promise<Learning | null> {
+// The most recent learnings snapshot for an org, or null (also null if the
+// table doesn't exist yet — callers treat "no learnings" as a no-op, so this
+// never throws). Must filter by org_id explicitly — callers on the
+// service-role (admin) client bypass RLS entirely, so this is the only thing
+// stopping one org's learnings from leaking into another's.
+export async function latestLearnings(supabase: SupabaseClient, orgId: string): Promise<Learning | null> {
   const { data } = await supabase
     .from("learnings")
     .select("id, narrative, do_more, do_less, watchouts, created_at")
+    .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

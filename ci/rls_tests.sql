@@ -2,33 +2,38 @@
 -- Authorization (RLS) tests. Run AFTER the shim + all migrations, as the
 -- postgres superuser, with `psql -v ON_ERROR_STOP=1` so any failed assertion
 -- (a RAISE EXCEPTION) fails CI. Each check runs inside a DO block that switches
--- to the `authenticated` role and sets request.jwt.claims to a specific user,
--- so the REAL policies from the migrations decide visibility.
+-- to the `authenticated` role and sets request.jwt.claims per fixture user, so
+-- the REAL policies from the migrations decide visibility.
 --
 -- Fixtures are inserted as the superuser (RLS is bypassed for the table owner),
 -- and users are created by inserting into auth.users — the on_auth_user_created
--- trigger copies them into public.users with the role/org from raw_user_meta_data.
+-- trigger copies them into public.users with the role/org_id from
+-- raw_user_meta_data (org_id must resolve to a real public.organizations row —
+-- the seeded xclsv/outlier orgs from 0015_organizations.sql).
 
 -- ---- fixture users (trigger -> public.users) ----
 insert into auth.users (id, email, raw_user_meta_data) values
-  ('11111111-1111-1111-1111-111111111111', 'admin@xclsv.test',  '{"role":"admin","org":"XCLSV"}'),
-  ('22222222-2222-2222-2222-222222222222', 'client@outlier.test','{"role":"client_viewer","org":"Outlier"}'),
-  ('33333333-3333-3333-3333-333333333333', 'creator1@xclsv.test','{"role":"creator","org":"XCLSV"}'),
-  ('44444444-4444-4444-4444-444444444444', 'creator2@xclsv.test','{"role":"creator","org":"XCLSV"}');
+  ('11111111-1111-1111-1111-111111111111', 'admin@xclsv.test',  '{"role":"admin","org_id":"99999999-9999-9999-9999-999999999991"}'),
+  ('22222222-2222-2222-2222-222222222222', 'client@outlier.test','{"role":"client_viewer","org_id":"99999999-9999-9999-9999-999999999992"}'),
+  ('33333333-3333-3333-3333-333333333333', 'creator1@xclsv.test','{"role":"creator","org_id":"99999999-9999-9999-9999-999999999991"}'),
+  ('44444444-4444-4444-4444-444444444444', 'creator2@xclsv.test','{"role":"creator","org_id":"99999999-9999-9999-9999-999999999991"}');
 
 -- ---- fixture domain data (as superuser => bypasses RLS) ----
-insert into public.concept_families (id, name) values
-  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'Test Family');
+-- One concept_family per org (org-scoped since 0016 — a shared row across
+-- orgs no longer makes sense).
+insert into public.concept_families (id, org_id, name) values
+  ('ffffffff-ffff-ffff-ffff-ffffffff0001', '99999999-9999-9999-9999-999999999992', 'Test Family Outlier'),
+  ('ffffffff-ffff-ffff-ffff-ffffffff0002', '99999999-9999-9999-9999-999999999991', 'Test Family XCLSV');
 
-insert into public.creatives (id, client_org, concept_family_id, hook_line) values
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Outlier', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'Outlier concept'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'XCLSV',   'ffffffff-ffff-ffff-ffff-ffffffffffff', 'XCLSV-only concept');
+insert into public.creatives (id, org_id, concept_family_id, hook_line) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '99999999-9999-9999-9999-999999999992', 'ffffffff-ffff-ffff-ffff-ffffffff0001', 'Outlier concept'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 'ffffffff-ffff-ffff-ffff-ffffffff0002', 'XCLSV-only concept');
 
 insert into public.creative_financials (creative_id, internal_cost_cents) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 5000);
 
-insert into public.cycles (id, label, starts_on, ends_on, client_org) values
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Test Week', '2026-01-01', '2026-01-07', 'Outlier');
+insert into public.cycles (id, label, starts_on, ends_on, org_id) values
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Test Week', '2026-01-01', '2026-01-07', '99999999-9999-9999-9999-999999999992');
 
 -- deliverable assigned to creator1 only
 insert into public.deliverables (id, cycle_id, concept_id, assignee_id) values
@@ -38,9 +43,15 @@ insert into public.deliverables (id, cycle_id, concept_id, assignee_id) values
    '33333333-3333-3333-3333-333333333333');
 
 -- content_cache fixtures: one Outlier winner, one XCLSV winner (org isolation)
-insert into public.content_cache (creative_id, client_org, score, results, spend_cents) values
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Outlier', 5.0, 50, 500000),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'XCLSV',   4.0, 40, 400000);
+insert into public.content_cache (creative_id, org_id, score, results, spend_cents) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '99999999-9999-9999-9999-999999999992', 5.0, 50, 500000),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 4.0, 40, 400000);
+
+-- cross_client_patterns fixtures: one draft, one published (staff-only asset —
+-- neither should ever be visible to a client/creator, regardless of status).
+insert into public.cross_client_patterns (id, title, generalized_summary, source_org_id, authored_by, status) values
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1', 'Draft pattern', 'A draft cross-client pattern.', '99999999-9999-9999-9999-999999999992', '11111111-1111-1111-1111-111111111111', 'draft'),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee2', 'Published pattern', 'A published cross-client pattern.', '99999999-9999-9999-9999-999999999992', '11111111-1111-1111-1111-111111111111', 'published');
 
 -- ============================================================================
 -- Assertions
@@ -152,22 +163,91 @@ begin
   raise notice 'ok - content_cache: winners are org-scoped';
 end $$;
 
--- 9) 0007: at most one Active cycle PER ORG; a different org may also be Active.
+-- 9) 0012 (single_active_cycle): at most one Active cycle PER ORG; a different
+-- org may also be Active.
 do $$
 begin
-  insert into public.cycles (label, starts_on, ends_on, client_org, status)
-    values ('Active-Outlier', '2026-02-01', '2026-02-07', 'Outlier', 'Active');
+  insert into public.cycles (label, starts_on, ends_on, org_id, status)
+    values ('Active-Outlier', '2026-02-01', '2026-02-07', '99999999-9999-9999-9999-999999999992', 'Active');
   -- A different org can be Active at the same time (per-org, not global).
-  insert into public.cycles (label, starts_on, ends_on, client_org, status)
-    values ('Active-XCLSV', '2026-02-01', '2026-02-07', 'XCLSV', 'Active');
+  insert into public.cycles (label, starts_on, ends_on, org_id, status)
+    values ('Active-XCLSV', '2026-02-01', '2026-02-07', '99999999-9999-9999-9999-999999999991', 'Active');
   -- A SECOND Active cycle in the SAME org must be rejected by cycles_one_active.
   begin
-    insert into public.cycles (label, starts_on, ends_on, client_org, status)
-      values ('Active-Outlier-2', '2026-02-08', '2026-02-14', 'Outlier', 'Active');
+    insert into public.cycles (label, starts_on, ends_on, org_id, status)
+      values ('Active-Outlier-2', '2026-02-08', '2026-02-14', '99999999-9999-9999-9999-999999999992', 'Active');
     raise exception 'FAIL: two Active cycles allowed in the same org';
   exception when unique_violation then
     raise notice 'ok - at most one Active cycle per org (cross-org Active allowed)';
   end;
+end $$;
+
+-- 10) concept_families: a client sees only its own org's family (0016 —
+-- previously ANY authenticated user could read every org's family, leaking
+-- another client's proven_hook_formula/compliance_note).
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222"}', true);
+  set local role authenticated;
+  select count(*) into n from public.concept_families where id = 'ffffffff-ffff-ffff-ffff-ffffffff0001';
+  if n <> 1 then raise exception 'FAIL: client cannot see its own-org family (got %)', n; end if;
+  select count(*) into n from public.concept_families where id = 'ffffffff-ffff-ffff-ffff-ffffffff0002';
+  if n <> 0 then raise exception 'FAIL: client can see another org''s family (got %)', n; end if;
+  raise notice 'ok - concept_families: org-scoping enforced';
+end $$;
+
+-- 11) cross_client_patterns (0017): staff-only, regardless of status — a
+-- client/creator gets zero rows even for a 'published' pattern.
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222"}', true);
+  set local role authenticated;
+  select count(*) into n from public.cross_client_patterns;
+  if n <> 0 then raise exception 'FAIL: client_viewer sees % cross_client_patterns rows, expected 0', n; end if;
+  raise notice 'ok - cross_client_patterns hidden from client_viewer';
+end $$;
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
+  set local role authenticated;
+  select count(*) into n from public.cross_client_patterns;
+  if n <> 0 then raise exception 'FAIL: creator sees % cross_client_patterns rows, expected 0', n; end if;
+  raise notice 'ok - cross_client_patterns hidden from creator';
+end $$;
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111"}', true);
+  set local role authenticated;
+  select count(*) into n from public.cross_client_patterns;
+  if n <> 2 then raise exception 'FAIL: staff sees % cross_client_patterns rows, expected 2', n; end if;
+  raise notice 'ok - staff sees all cross_client_patterns regardless of status';
+end $$;
+
+-- 12) organizations (0015): a client_viewer sees only their own org's row;
+-- staff sees all.
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222"}', true);
+  set local role authenticated;
+  select count(*) into n from public.organizations;
+  if n <> 1 then raise exception 'FAIL: client_viewer sees % organizations rows, expected 1', n; end if;
+  select count(*) into n from public.organizations where slug = 'outlier';
+  if n <> 1 then raise exception 'FAIL: client_viewer cannot see its own org row (got %)', n; end if;
+  raise notice 'ok - organizations: client_viewer sees only its own org';
+end $$;
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111"}', true);
+  set local role authenticated;
+  select count(*) into n from public.organizations;
+  if n <> 2 then raise exception 'FAIL: staff sees % organizations rows, expected 2', n; end if;
+  raise notice 'ok - organizations: staff sees all orgs';
 end $$;
 
 \echo 'All RLS assertions passed.'

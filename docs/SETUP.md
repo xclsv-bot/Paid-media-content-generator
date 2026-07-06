@@ -32,7 +32,7 @@ Then seed the slate from the sheet:
 - `supabase/seed.sql` — 12 concept families (with compliance notes) + 40 creatives.
 
 > Re-running migrations/seed is safe: the bucket insert and the seed use
-> `on conflict do nothing`, and creatives are keyed on `(sheet_id, client_org)`.
+> `on conflict do nothing`, and creatives are keyed on `(sheet_id, org_id)`.
 
 To regenerate the seed if the sheet changes:
 ```bash
@@ -42,17 +42,29 @@ python3 scripts/generate_seed.py /path/to/Outlier_Paid_Media_Ads.xlsx > supabase
 
 ## 4. Create users
 Create users in **Supabase → Authentication → Users**. The `on_auth_user_created`
-trigger copies them into `public.users`. Set role/org via the user's
-`raw_user_meta_data` at creation, or update `public.users` afterward:
+trigger copies them into `public.users` — it **requires** `org_id` in the
+user's `raw_user_meta_data` and will fail the user's creation if it's missing
+(no silent default; look up the id first):
+
+```sql
+select id, slug, display_name from public.organizations;
+```
+
+Set role/org_id via `raw_user_meta_data` at creation, or update `public.users`
+afterward:
 
 ```sql
 -- XCLSV editor (can upload videos, see cost fields)
-update public.users set role = 'editor', org = 'XCLSV' where email = 'editor@xclsvmedia.com';
+update public.users set role = 'editor', org_id = (select id from public.organizations where slug = 'xclsv') where email = 'editor@xclsvmedia.com';
 -- XCLSV admin
-update public.users set role = 'admin',  org = 'XCLSV' where email = 'zaire@xclsvmedia.com';
+update public.users set role = 'admin',  org_id = (select id from public.organizations where slug = 'xclsv') where email = 'zaire@xclsvmedia.com';
 -- Outlier client (view + download + comment; never sees cost)
-update public.users set role = 'client_viewer', org = 'Outlier' where email = 'lead@outlier.bet';
+update public.users set role = 'client_viewer', org_id = (select id from public.organizations where slug = 'outlier') where email = 'lead@outlier.bet';
 ```
+
+To onboard a new client: insert a row into `public.organizations` (a
+`display_name` and, optionally, a `voice_note` used to parameterize the AI
+prompts), then provision that client's users against its `id` as above.
 
 ## 5. Run
 ```bash

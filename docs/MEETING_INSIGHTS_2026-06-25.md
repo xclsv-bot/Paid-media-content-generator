@@ -41,17 +41,27 @@ Two mechanisms were named for getting weekly assignments to creators/editors:
   This is the concrete, scoped gap: notify a creator the moment a deliverable
   is assigned to them, instead of relying on them to check the queue.
 
-## The flywheel argument (long tail beyond Outlier)
+## The flywheel argument (long tail beyond Outlier) — done
 Explicit strategic framing: build for Outlier first, but architect so the
 **insight layer generalizes** — what works for one betting/fantasy app likely
 transfers to others, so more clients feeding the system compounds the quality
-of everyone's output. Practical implication for this repo: org-scoping
-(already RLS-enforced) needs a **cross-org, anonymized learnings layer**
-eventually — proven hook/format/CTA patterns that generalize *across* clients
-without leaking one client's specific scripts/cost data to another. Not
-designed yet; flag before onboarding a second paying client, since "no ramp-up
-period" was called out as the bar to clear (must already work well on day one
-for client #2).
+of everyone's output.
+
+**Built**, per `supabase/migrations/0015_organizations.sql` /
+`0016_org_scope_shared_tables.sql` / `0017_cross_client_patterns.sql`:
+- The `org_type` enum → a real `organizations` table + `org_id` FK, so a
+  third/fourth client onboards without a schema migration.
+- A critical correction surfaced along the way: `concept_families` and
+  `learnings` — assumed safe/generic because they had no org column — turned
+  out to hold real client-identifiable content (the client's literal name,
+  campaign $ figures, a named competitor, a named staff member's in-flight
+  legal negotiation, quoted script bodies). They're now org-scoped, closing
+  a real contamination risk, not just a schema gap.
+- The actual sharing mechanism is a **separate, human-abstracted**
+  `cross_client_patterns` table (staff-authored, review-gated, staff-only —
+  never broadening a policy on the raw per-client tables) — mirrors the
+  `creative_financials` "physically separate + deny-by-default" precedent and
+  the `organic_signals` review-gate precedent.
 
 ## Meta Ads API — reversed since this meeting, not a pending build
 **Correction (as of the codebase's current state):** the ask from this meeting
@@ -88,14 +98,14 @@ No action needed in this repo.
 2. **Organic content signal** — designed and built: a new `organic_signals`
    table (staff-curated via `/signals` or the `/api/agent/signals` bearer-token
    seam, human-review gated) grounds Ideate as an explore-only input, never
-   conflated with proven CPT performance. Deliberately global (no org column),
-   matching `concept_families`/`hook_angles`/`learnings` — see item 3.
-3. **Cross-client learnings layer** — design before onboarding client #2, so
-   the flywheel thesis (context compounds across clients) has somewhere to
-   live without violating per-client RLS isolation. `organic_signals` was
-   built global-first specifically to keep this option open at zero cost;
-   `creatives`/`cycles`/`deliverables` remain genuinely org-scoped via the
-   `org_type` enum and still need the harder multi-tenancy redesign
-   (enum → real `organizations` table) before a second client can onboard.
+   conflated with proven CPT performance. Deliberately global (no org column)
+   — genuinely safe to keep that way, unlike item 3's correction below.
+3. **Cross-client learnings layer** — **done**: `org_type` enum replaced with
+   a real `organizations` table (`0015`/`0016`), and the actual sharing
+   mechanism built as a separate, human-abstracted `cross_client_patterns`
+   table (`0017`). Along the way, corrected the assumption above that
+   `concept_families`/`learnings` were safe-to-share "global" tables like
+   `organic_signals` — they weren't (see the flywheel section above); they're
+   now org-scoped instead.
 4. **Live Meta Marketing API sync** — **stale, corrected above**: the codebase
    has since reversed away from live API integration entirely, not toward it.

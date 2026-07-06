@@ -25,21 +25,22 @@ export async function PATCH(
   // to a bad/deleted id must not demote the live Active cycle and then 500.
   const { data: target } = await supabase
     .from("cycles")
-    .select("id, client_org")
+    .select("id, org_id")
     .eq("id", id)
     .maybeSingle();
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Demote any other Active cycle IN THE SAME ORG, then promote this one. The
-  // partial unique index cycles_one_active (migration 0007) is per client_org, so
-  // activations in different orgs never collide; on a same-org race (23505) we
-  // retry. Re-activating the already-active cycle is a harmless no-op.
+  // partial unique index cycles_one_active (migration 0012, org-scoped since
+  // 0015) is per org_id, so activations in different orgs never collide; on a
+  // same-org race (23505) we retry. Re-activating the already-active cycle is
+  // a harmless no-op.
   const activate = () =>
     supabase
       .from("cycles")
       .update({ status: "Closed" })
       .eq("status", "Active")
-      .eq("client_org", target.client_org)
+      .eq("org_id", target.org_id)
       .neq("id", id)
       .then(() =>
         supabase.from("cycles").update({ status: "Active" }).eq("id", id).select().maybeSingle(),

@@ -17,7 +17,7 @@ export async function POST(
   const { data: src, error: readErr } = await supabase
     .from("creatives")
     .select(
-      "concept_family_id, hook_line, hypothesis, content_summary, hook_angle, archetype, feature_pillar, sport, format, cta, variant_differentiator, compliance_note, client_org",
+      "concept_family_id, hook_line, hypothesis, content_summary, hook_angle, archetype, feature_pillar, sport, format, cta, variant_differentiator, compliance_note, org_id",
     )
     .eq("id", id)
     .single();
