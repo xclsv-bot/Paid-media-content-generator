@@ -38,7 +38,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   if (!creative) notFound();
 
   const [{ data: assets }, { data: perf }, { data: scripts }, { data: refs }] = await Promise.all([
-    supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at").eq("creative_id", id).order("uploaded_at", { ascending: false }),
+    supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at, transcript, transcript_status").eq("creative_id", id).order("uploaded_at", { ascending: false }),
     supabase.from("creative_performance").select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated").eq("creative_id", id).single(),
     supabase.from("scripts").select("id, body, source, status, version, model, created_at").eq("concept_id", id).order("version", { ascending: false }),
     supabase.from("concept_references").select("id, kind, url, storage_path, label").eq("concept_id", id).order("created_at", { ascending: true }),
@@ -62,6 +62,8 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
     (assets ?? []).map(async (a) => ({
       id: a.id, fileName: a.file_name, versionLabel: a.version_label,
       streamUrl: await createSignedStream(a.storage_path).catch(() => null),
+      transcript: a.transcript as string | null,
+      transcriptStatus: a.transcript_status as string | null,
     })),
   );
 
@@ -131,7 +133,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {videos.map((v) => <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} canDelete={staff} />)}
+                {videos.map((v) => <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} canDelete={staff} transcript={v.transcript} transcriptStatus={v.transcriptStatus} />)}
               </div>
             )}
             {staff && <div className="mt-3"><VideoUploader creativeId={creative.id} /></div>}
