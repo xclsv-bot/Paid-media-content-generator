@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
@@ -57,17 +58,28 @@ export default async function PerformancePage() {
   const user = await getCurrentUser();
   const supabase = await createClient();
 
-  const [{ data: metricRows }, learning] = await Promise.all([
+  const [{ data: metricRows }, { data: creativeRows }, learning] = await Promise.all([
     supabase
       .from("creative_metrics")
       .select(
         "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
       )
       .order("spend", { ascending: false, nullsFirst: false }),
+    supabase.from("creatives").select("id, ad_name, hook_line").not("ad_name", "is", null),
     latestLearnings(supabase),
   ]);
 
   const all = (metricRows ?? []) as Metric[];
+
+  // The concept(s) behind each ad name — a name can map to more than one (same
+  // creative "type"). Lets us click a graduated ad through to its brief/transcript.
+  const conceptsByName = new Map<string, { id: string; hook_line: string | null }[]>();
+  for (const c of (creativeRows ?? []) as { id: string; ad_name: string | null; hook_line: string | null }[]) {
+    if (!c.ad_name) continue;
+    const list = conceptsByName.get(c.ad_name) ?? [];
+    list.push({ id: c.id, hook_line: c.hook_line });
+    conceptsByName.set(c.ad_name, list);
+  }
 
   // Default to the most recent flight.
   const flights = [...new Set(all.map((m) => m.flight_label))];
@@ -155,11 +167,26 @@ export default async function PerformancePage() {
                       <tbody>
                         {rows.map((m) => {
                           const good = m.cpa != null && targetDollars != null && m.cpa <= targetDollars;
+                          const concepts = conceptsByName.get(m.ad_name) ?? [];
                           return (
                             <tr key={m.ad_name} className="border-t border-white/5 align-top">
                               <td className="px-3 py-2">
                                 <div className="font-medium text-gray-100">{shortName(m.ad_name)}</div>
                                 <div className="truncate font-mono text-[10.5px] text-white/35" title={m.ad_name}>{m.ad_name}</div>
+                                {concepts.length > 0 && (
+                                  <div className="mt-1 flex flex-col gap-0.5">
+                                    {concepts.map((c) => (
+                                      <Link
+                                        key={c.id}
+                                        href={`/creatives/${c.id}`}
+                                        className="w-fit text-[12px] text-sky-300 hover:underline"
+                                        title="Open the concept — brief, transcript, and details"
+                                      >
+                                        → {c.hook_line ?? "Open concept"}
+                                      </Link>
+                                    ))}
+                                  </div>
+                                )}
                                 {m.reason && <div className="mt-0.5 max-w-md text-[11.5px] text-white/45">{m.reason}</div>}
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums text-white/80">{usd(m.spend)}</td>
