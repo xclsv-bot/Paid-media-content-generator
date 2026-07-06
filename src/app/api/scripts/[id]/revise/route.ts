@@ -55,7 +55,7 @@ export async function POST(
     (review?.weaknesses as string[] | null)?.length ? `Weaknesses to fix (weakest first):\n${(review!.weaknesses as string[]).map((w) => `- ${w}`).join("\n")}` : "",
     (review?.suggestions as string[] | null)?.length ? `Suggestions:\n${(review!.suggestions as string[]).map((s) => `- ${s}`).join("\n")}` : "",
     (review?.compliance_flags as string[] | null)?.length ? `Compliance risks that MUST be resolved:\n${(review!.compliance_flags as string[]).map((f) => `- ${f}`).join("\n")}` : "",
-  ].filter(Boolean).join("\n\n") || "No prior review — improve the hook, tighten the beats, and sharpen the CTA.";
+  ].filter(Boolean).join("\n\n") || "No prior review — sharpen the hook, tighten the concept to one idea, and clarify the CTA.";
 
   const context = [
     `Family: ${fam?.name ?? "—"}`,
@@ -67,12 +67,12 @@ export async function POST(
     c?.compliance_note ? `CONCEPT COMPLIANCE RULE: ${c.compliance_note}` : "",
   ].filter(Boolean).join("\n");
 
-  const system = `You are a top short-form video ad writer for the Outlier sportsbook-research app. Rewrite the script to clear the rubric, fixing the weakest points first while keeping what already works. Wins are the outcome of research, never luck. Stay strictly within the compliance rules. Keep it tight (~15s, 9:16) with timed beats and one clear CTA.
+  const system = `You are a creative director refining a CREATIVE BRIEF for a short-form video creator on the Outlier sportsbook-research app. Rewrite the brief to address the feedback, fixing the weakest points first while keeping what already works. Keep it a BRIEF, not a script: direction, a loose example opener, tone, and guardrails — NOT timed beats, shot lists, or word-for-word voiceover. Preserve the creator's freedom.
 
-Rubric:
+Keep the "The concept: / Tone: / Two rules:" shape, a few short paragraphs a creator reads in 30 seconds. Wins are always the outcome of research, never luck; never frame it as picks or guaranteed wins. Stay within the compliance rules. It should still respect the quality bar the finished piece is judged on:
 ${rubricText()}
 
-Return the full revised script in "body" (with beat/timecode cues like the original), and a one-line "notes" on what you changed.`;
+Return the full revised brief in "body", and a one-line "notes" on what you changed.`;
 
   let client: Anthropic;
   try {
@@ -88,7 +88,7 @@ Return the full revised script in "body" (with beat/timecode cues like the origi
       thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: REVISE_SCHEMA } },
       system,
-      messages: [{ role: "user", content: `CONCEPT CONTEXT\n${context}\n\nCURRENT SCRIPT (v${script.version})\n${script.body}\n\nREVIEW FEEDBACK\n${feedback}` }],
+      messages: [{ role: "user", content: `CONCEPT CONTEXT\n${context}\n\nCURRENT BRIEF (v${script.version})\n${script.body}\n\nREVIEW FEEDBACK\n${feedback}` }],
     });
     if (response.stop_reason === "refusal") {
       return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
