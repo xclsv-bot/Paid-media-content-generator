@@ -96,7 +96,7 @@ export default function IdeateWorkspace() {
     );
     setAdded((n) => n + 1);
     if (toCycle) {
-      flash(data.cycle ? `Added to This Week — ${data.cycle.label} ✓` : "Added to Ideas — no active cycle to schedule into");
+      flash(data.cycle ? `Added to This Week — ${data.cycle.label} ✓` : "Added to Ideas — no open cycle yet (create one on This Week)");
     } else {
       flash("Added to Ideas ✓");
     }
