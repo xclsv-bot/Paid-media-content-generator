@@ -16,6 +16,7 @@ export type IdeaRow = {
   cpt: number | null;
   hit: boolean | null;
   has_video: boolean;
+  in_cycle: boolean;
 };
 
 const IDEA_STATUSES = ["Backlog", "Testing", "Winner", "Parked"];
@@ -47,6 +48,7 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
   const [family, setFamily] = useState("");
   const [archetype, setArchetype] = useState("");
   const [status, setStatus] = useState("");
+  const [hideScheduled, setHideScheduled] = useState(false);
   const [view, setView] = useState<View>("cards");
 
   // Remember the user's preferred view across visits.
@@ -61,7 +63,10 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
 
   const families = useMemo(() => uniq(rows.map((r) => r.family)), [rows]);
 
+  const scheduledCount = useMemo(() => rows.filter((r) => r.in_cycle).length, [rows]);
+
   const filtered = rows.filter((r) => {
+    if (hideScheduled && r.in_cycle) return false;
     if (family && r.family !== family) return false;
     if (archetype && r.archetype !== archetype) return false;
     if (status && r.idea_status !== status) return false;
@@ -105,6 +110,19 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
             );
           })}
         </div>
+        <button
+          onClick={() => setHideScheduled((v) => !v)}
+          disabled={scheduledCount === 0}
+          title="Hide concepts already scheduled into a cycle"
+          className={`rounded-lg border px-3 py-1.5 text-[12.5px] disabled:opacity-40 ${
+            hideScheduled
+              ? "border-emerald-400 bg-emerald-400 font-semibold text-black"
+              : "border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/10"
+          }`}
+        >
+          {hideScheduled ? "Scheduled hidden" : "Hide scheduled"}
+          {scheduledCount > 0 && <span className="ml-1.5 opacity-60">{scheduledCount}</span>}
+        </button>
         <div className="ml-auto flex items-center gap-3">
           {/* view toggle */}
           <div className="flex overflow-hidden rounded-lg border border-white/10">
@@ -147,6 +165,7 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
                 <div className="flex flex-wrap items-center gap-2">
                   {r.hook_angle && <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/75">{r.hook_angle}</span>}
                   {r.sport && <span className="text-xs text-white/50">{r.sport}</span>}
+                  {r.in_cycle && <span className="rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] text-sky-300">Scheduled</span>}
                   {r.is_proven && <span className="ml-auto font-mono text-[10.5px] tracking-wide text-emerald-300">✓ PROVEN</span>}
                 </div>
                 <div className="flex items-center gap-2 border-t border-white/[0.07] pt-2.5">
@@ -178,7 +197,10 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
                 <span className="truncate text-gray-100">{r.hook_line}</span>
                 <span className="truncate text-white/60">{r.hook_angle}</span>
                 <span className="truncate text-white/55">{r.sport}</span>
-                <span><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_PILL[r.idea_status] ?? ""}`}>{r.idea_status}</span></span>
+                <span className="flex items-center gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_PILL[r.idea_status] ?? ""}`}>{r.idea_status}</span>
+                  {r.in_cycle && <span className="text-sky-300" title="Scheduled into a cycle">◷</span>}
+                </span>
                 <span className="flex items-center gap-2 truncate text-[12px]" style={{ color: foot.color }}>
                   <span className="h-[6px] w-[6px] flex-shrink-0 rounded-full" style={{ background: foot.color }} />
                   {foot.label}
