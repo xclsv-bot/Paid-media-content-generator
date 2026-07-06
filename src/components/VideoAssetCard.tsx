@@ -9,17 +9,37 @@ export default function VideoAssetCard({
   versionLabel,
   streamUrl,
   canDelete = false,
+  transcript = null,
+  transcriptStatus = null,
 }: {
   id: string;
   fileName: string;
   versionLabel: string;
   streamUrl: string | null;
   canDelete?: boolean;
+  transcript?: string | null;
+  transcriptStatus?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+
+  async function transcribe() {
+    setTranscribing(true);
+    try {
+      const res = await fetch(`/api/videos/${id}/transcribe`, { method: "POST" });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Transcription failed" }));
+        alert(error || "Transcription failed");
+      }
+      router.refresh();
+    } finally {
+      setTranscribing(false);
+    }
+  }
 
   async function download() {
     setBusy(true);
@@ -112,6 +132,32 @@ export default function VideoAssetCard({
             ))}
         </div>
       </div>
+
+      {(transcript || transcriptStatus || canDelete) && (
+        <div className="mt-2 border-t border-white/10 pt-2">
+          <div className="flex items-center gap-2.5">
+            {transcript ? (
+              <button onClick={() => setShowTranscript((s) => !s)} className="text-xs text-white/55 hover:text-white/85">
+                {showTranscript ? "▾ Hide transcript" : "▸ Transcript"}
+              </button>
+            ) : transcriptStatus === "pending" || transcribing ? (
+              <span className="text-xs text-white/40">Transcribing…</span>
+            ) : (
+              <span className="text-xs text-white/35">{transcriptStatus === "failed" ? "Transcript failed" : "No transcript"}</span>
+            )}
+            {canDelete && transcriptStatus !== "pending" && !transcribing && (
+              <button onClick={transcribe} className="text-xs text-violet-300 hover:underline">
+                {transcript ? "Re-transcribe" : "Transcribe"}
+              </button>
+            )}
+          </div>
+          {transcript && showTranscript && (
+            <p className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-white/70">
+              {transcript}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
