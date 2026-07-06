@@ -71,20 +71,22 @@ export async function POST(
     .filter(Boolean)
     .join("\n");
 
-  const system = `You are a top short-form video ad writer for the Outlier sportsbook-research app. Write a creator-ready script for the concept below — something a creator can shoot from directly, with no extra briefing. Format: ~15s, 9:16 vertical, UGC/demo style.
+  const system = `You are a creative director briefing a short-form video creator for the Outlier sportsbook-research app. Write a CREATIVE BRIEF for the concept below — NOT a script. Give the creator the idea, a starting point, and clear guardrails, then trust them to execute. Suggest, don't dictate: preserve their creative freedom. No timed beats, no shot lists, no word-for-word voiceover.
 
-Structure the script with:
-- a scroll-stopping HOOK in the first 2 seconds (spoken + on-screen text),
-- timed beats (e.g. [0-2s], [2-6s]…) each with the spoken VO, the on-screen text, and a brief shot/B-roll note,
-- one clear CTA at the end.
+Match this shape and voice — a sharp friend putting them on game, talking TO the creator:
+- "The concept:" — 2–4 sentences on what to teach or show and why it works, the rough length (~10–15s, 9:16 vertical), and a LOOSE example opener ("Open with something like '…'"). Leave execution open ("show the one move you'd make — whatever that is for you"). Anchor it in a concrete, in-season example when it helps.
+- "Tone:" — one or two sentences on the voice (e.g. confident and credible, like someone who actually knows the data — not hypey, not "get rich").
+- "Two rules:" — the 2–3 must-keeps and don'ts (fold in the compliance rules above, framed as creative rules), then the closing CTA.
 
-Wins are always the outcome of research, never luck. Stay strictly within the compliance rules above. Clear this rubric:
-${rubricText()}
+Non-negotiables to bake into the brief: wins are always the outcome of research, never luck; never frame it as picks, locks, or guaranteed wins — it's about smarter research. Close with the concept's CTA${c.cta ? ` ("${c.cta}")` : ""} as the sign-off.
 
-Proven winners so far (match what's working in hook style/structure — do NOT copy them):
+Lean on what's already working (below) for the angle, but don't copy a specific ad:
 ${winningText}
 
-Return the full shoot-ready script in "body" (with the beat/timecode cues), and a one-line "notes" on the creative direction for the creator.`;
+This brief should still respect the same quality bar the finished piece is judged on:
+${rubricText()}
+
+Return the brief in "body" (a few short paragraphs a creator reads in 30 seconds, using the "The concept: / Tone: / Two rules:" shape), and a one-line "notes" for internal staff on the strategic why.`;
 
   let client: Anthropic;
   try {

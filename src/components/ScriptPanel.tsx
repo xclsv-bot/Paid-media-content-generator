@@ -76,7 +76,7 @@ export default function ScriptPanel({
 
   async function runGenerate() {
     setBusy(true);
-    setStatus("Writing a first draft from the concept…");
+    setStatus("Writing a creator brief from the concept…");
     try {
       const { ok, data } = await fetchJson(`/api/concepts/${conceptId}/scripts/generate`, { method: "POST" });
       if (!ok) throw new Error(String(data.error ?? "Generation failed"));
@@ -135,7 +135,7 @@ export default function ScriptPanel({
   return (
     <section className="rounded-xl border border-white/10 bg-white/5 p-4">
       <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-lg font-medium">Script</h2>
+        <h2 className="text-lg font-medium">Creator brief</h2>
         {latest && (
           <>
             <Badge className="bg-white/10 text-white/60">v{latest.version}</Badge>
@@ -156,7 +156,7 @@ export default function ScriptPanel({
 
       {!latest && !editing && (
         <p className="text-sm text-white/40">
-          No script yet — hit <b className="text-violet-300">Generate script</b> to draft a shoot-ready script from the concept, or write one manually.
+          No brief yet — hit <b className="text-violet-300">Generate brief</b> to draft a creator brief from the concept, or write one manually.
         </p>
       )}
 
@@ -180,7 +180,7 @@ export default function ScriptPanel({
               {!latest && (
                 <button onClick={runGenerate} disabled={busy}
                   className="rounded-lg bg-violet-500/90 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50">
-                  ✨ Generate script
+                  ✨ Generate brief
                 </button>
               )}
               <button onClick={() => { setDraft(latest?.body ?? ""); setEditing(true); }}
