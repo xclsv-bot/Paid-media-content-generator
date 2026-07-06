@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0017_cross_client_patterns.sql — the actual cross-client sharing mechanism
+-- 0018_cross_client_patterns.sql — the actual cross-client sharing mechanism
 -- (Phase B). A staff-authored, abstracted pattern surface — deliberately NOT
 -- a broadened RLS policy on learnings/concept_families (see 0015/0016's
 -- rationale: those tables carry real client IP/$/named-people content).

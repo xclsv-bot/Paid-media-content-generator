@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0015_organizations.sql — replace the org_type enum with a real organizations
+-- 0016_organizations.sql — replace the org_type enum with a real organizations
 -- table + org_id FK, so a new client can be added without an ALTER TYPE ...
 -- ADD VALUE migration. See docs/MEETING_INSIGHTS_2026-06-25.md backlog item 3.
 --

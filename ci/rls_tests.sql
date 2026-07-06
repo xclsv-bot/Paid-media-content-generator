@@ -9,7 +9,7 @@
 -- and users are created by inserting into auth.users — the on_auth_user_created
 -- trigger copies them into public.users with the role/org_id from
 -- raw_user_meta_data (org_id must resolve to a real public.organizations row —
--- the seeded xclsv/outlier orgs from 0015_organizations.sql).
+-- the seeded xclsv/outlier orgs from 0016_organizations.sql).
 
 -- ---- fixture users (trigger -> public.users) ----
 insert into auth.users (id, email, raw_user_meta_data) values

@@ -425,15 +425,15 @@ generalize before client #2, a migration touching every RLS policy after.
 **Definition of done:**
 - [x] `org` becomes a first-class `organizations` row referenced by `org_id` FK from
       `users`/`creatives`/`cycles`/`content_cache`/`concept_families`/`hook_angles`/`learnings`,
-      replacing the `org_type` enum and the TS literal union (`0015_organizations.sql`,
-      `0016_org_scope_shared_tables.sql`); `current_org()`/`is_staff()`/`can_see_creative()`
+      replacing the `org_type` enum and the TS literal union (`0016_organizations.sql`,
+      `0017_org_scope_shared_tables.sql`); `current_org()`/`is_staff()`/`can_see_creative()`
       updated; existing XCLSV/Outlier rows migrated; `handle_new_user()` now requires an
       explicit `org_id` in auth metadata instead of silently defaulting to Outlier.
 - [x] The generation-time contamination surfaces this uncovered (Ideate, the learnings
       generator, and `concept_families`/`hook_angles`, which turned out to hold real
       client-identifiable content despite their "global" schema) are now org-filtered —
       see `docs/MEETING_INSIGHTS_2026-06-25.md` backlog item 3 for the full writeup, and
-      `0017_cross_client_patterns.sql` for the deliberately separate, human-abstracted
+      `0018_cross_client_patterns.sql` for the deliberately separate, human-abstracted
       cross-client sharing surface built alongside it.
 
 Product decision resolved: multi-client is in scope (confirmed when this item was picked up).

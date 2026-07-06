@@ -47,8 +47,8 @@ Explicit strategic framing: build for Outlier first, but architect so the
 transfers to others, so more clients feeding the system compounds the quality
 of everyone's output.
 
-**Built**, per `supabase/migrations/0015_organizations.sql` /
-`0016_org_scope_shared_tables.sql` / `0017_cross_client_patterns.sql`:
+**Built**, per `supabase/migrations/0016_organizations.sql` /
+`0017_org_scope_shared_tables.sql` / `0018_cross_client_patterns.sql`:
 - The `org_type` enum → a real `organizations` table + `org_id` FK, so a
   third/fourth client onboards without a schema migration.
 - A critical correction surfaced along the way: `concept_families` and
