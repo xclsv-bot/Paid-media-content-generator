@@ -2,7 +2,7 @@
   "name": "paid-media-content-generator",
   "version": "0.1.0",
   "private": true,
-  "description": "XCLSV Creative Dashboard & Client Portal \u2014 content slate, video delivery, and Meta Ads performance for Outlier.",
+  "description": "XCLSV Creative Dashboard & Client Portal — content slate, video delivery, and Meta Ads performance for Outlier.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -18,7 +18,7 @@
     "@anthropic-ai/sdk": "^0.107.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
-    "next": "15.1.11",
+    "next": "15.5.20",
     "react": "19.0.0",
     "react-dom": "19.0.0"
   },
