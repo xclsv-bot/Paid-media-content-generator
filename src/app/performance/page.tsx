@@ -1,192 +1,223 @@
-import Link from "next/link";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import {
-  defaultTargetCents,
-  rollupBy,
-  type CreativePerf,
-  type Rollup,
-} from "@/lib/metrics/perf";
-import { isMature, minTrials, rankScore, hitRate, slotStatus, type SlotStatus, MATURE_DAYS } from "@/lib/loop/attribution";
+import { defaultTargetCents } from "@/lib/metrics/perf";
+import { parseNamingConvention } from "@/lib/client/categorize";
 import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
 
 export const dynamic = "force-dynamic";
 
-type Dim = {
-  id: string;
-  hook_angle: string | null;
-  archetype: string | null;
-  sport: string | null;
-  feature_pillar: string | null;
-  format: string | null;
-  cpt_target_cents: number | null;
-  concept_families: { name: string } | { name: string }[] | null;
+// One report row = one ad name for one flight (the unit of measurement).
+type Metric = {
+  ad_name: string;
+  flight_label: string;
+  flight_start: string | null;
+  spend: number | null;
+  conversions: number | null;
+  cpa: number | null;
+  ctr: number | null;
+  bau_cpa: number | null;
+  verdict: string | null;
+  reason: string | null;
+  cpm: number | null;
+  cpi: number | null;
+  cps: number | null;
+  icvr: number | null;
+  scvr: number | null;
+  aov: number | null;
+  roas: number | null;
 };
-type PerfRow = CreativePerf & { first_date: string | null };
 
-function familyName(d: Dim): string | null {
-  const f = d.concept_families;
-  if (!f) return null;
-  return Array.isArray(f) ? f[0]?.name ?? null : f.name;
+const VERDICTS = ["GRADUATE", "KEEP_TESTING", "KILL"] as const;
+const VERDICT_LABEL: Record<string, string> = { GRADUATE: "Graduated", KEEP_TESTING: "Keep testing", KILL: "Killed" };
+const VERDICT_PILL: Record<string, string> = {
+  GRADUATE: "bg-emerald-500/15 text-emerald-300",
+  KEEP_TESTING: "bg-amber-500/15 text-amber-300",
+  KILL: "bg-red-500/15 text-red-300",
+};
+const VERDICT_BAR: Record<string, string> = {
+  GRADUATE: "bg-emerald-400/80",
+  KEEP_TESTING: "bg-amber-400/80",
+  KILL: "bg-red-400/70",
+};
+
+const usd = (n: number | null | undefined) =>
+  n == null ? "—" : `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const pct = (r: number | null | undefined) => (r == null ? "—" : `${(Number(r) * 100).toFixed(2)}%`);
+const num = (n: number | null | undefined) => (n == null ? "—" : Number(n).toLocaleString());
+
+// Short, human ad label — drop the "XCLSV _ XCLSV _" and date noise.
+function shortName(adName: string): string {
+  const parts = adName.split(/\s*_\s*/).map((s) => s.trim());
+  const body = parts.slice(2).filter((p) => !/^\d/.test(p)); // drop leading brand tokens + trailing date
+  return body.join(" · ");
 }
-
-const STATUS_PILL: Record<SlotStatus, string> = {
-  Proven: "bg-emerald-500/15 text-emerald-300",
-  Validating: "bg-sky-500/15 text-sky-300",
-  Untested: "bg-white/10 text-white/50",
-};
-const STATUS_DOT: Record<SlotStatus, string> = {
-  Proven: "bg-emerald-400",
-  Validating: "bg-sky-400",
-  Untested: "bg-white/30",
-};
-
-const DIMENSIONS: { label: string; pick: (d: Dim | undefined) => string | null }[] = [
-  { label: "Concept family", pick: (d) => (d ? familyName(d) : null) },
-  { label: "Hook angle", pick: (d) => d?.hook_angle ?? null },
-  { label: "Audience", pick: (d) => d?.archetype ?? null },
-  { label: "Sport", pick: (d) => d?.sport ?? null },
-  { label: "Feature", pick: (d) => d?.feature_pillar ?? null },
-  { label: "Format", pick: (d) => d?.format ?? null },
-];
 
 export default async function PerformancePage() {
   const user = await getCurrentUser();
   const supabase = await createClient();
 
-  const [{ data: perfRows }, { data: dimRows }, { data: familyRows }] = await Promise.all([
+  const [{ data: metricRows }, learning] = await Promise.all([
     supabase
-      .from("creative_performance")
-      .select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated, first_date"),
-    supabase
-      .from("creatives")
-      .select("id, hook_angle, archetype, sport, feature_pillar, format, cpt_target_cents, concept_families(name)"),
-    supabase.from("concept_families").select("name").order("name"),
+      .from("creative_metrics")
+      .select(
+        "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
+      )
+      .order("spend", { ascending: false, nullsFirst: false }),
+    latestLearnings(supabase),
   ]);
 
-  const dims = new Map<string, Dim>();
-  for (const d of (dimRows ?? []) as unknown as Dim[]) dims.set(d.id, d);
+  const all = (metricRows ?? []) as Metric[];
 
-  const fallback = defaultTargetCents();
-  const targetForRow = (creativeId: string) => dims.get(creativeId)?.cpt_target_cents ?? fallback;
+  // Default to the most recent flight.
+  const flights = [...new Set(all.map((m) => m.flight_label))];
+  const latestFlight =
+    all.reduce<Metric | null>((best, m) => (!best || (m.flight_start ?? "") > (best.flight_start ?? "") ? m : best), null)
+      ?.flight_label ?? flights[0] ?? null;
+  const metrics = all.filter((m) => m.flight_label === latestFlight);
 
-  const perf = (perfRows ?? []) as unknown as PerfRow[];
-  const totalSpend = perf.reduce((s, p) => s + Number(p.spend || 0), 0);
+  const targetCents = defaultTargetCents();
+  const targetDollars = targetCents != null ? targetCents / 100 : null;
 
-  // Gated learnings set: mature cohorts with enough trials behind them.
-  const now = new Date();
-  const bar = minTrials();
-  const matured = perf.filter((p) => isMature(p.first_date, now) && Number(p.results ?? 0) >= bar);
+  // Grand totals (blended, ratio-of-sums).
+  const totSpend = metrics.reduce((s, m) => s + Number(m.spend || 0), 0);
+  const totConv = metrics.reduce((s, m) => s + Number(m.conversions || 0), 0);
+  const blendedCpa = totConv > 0 ? totSpend / totConv : null;
+  const grads = metrics.filter((m) => m.verdict === "GRADUATE").length;
 
-  const scoreboard = (rows: PerfRow[]) =>
-    DIMENSIONS.map((dd) => ({
-      label: dd.label,
-      rows: rankScore(rollupBy(rows.map((p) => ({ ...p, dimension: dd.pick(dims.get(p.creative_id)) })), targetForRow)),
-    }));
-  const scored = scoreboard(matured);
-
-  // Portfolio: every family's status from its matured family rollup.
-  const famRollup = new Map((scored.find((s) => s.label === "Concept family")?.rows ?? []).map((r) => [r.key, r]));
-  const portfolio = ((familyRows ?? []) as { name: string }[]).map((f) => {
-    const r = famRollup.get(f.name);
-    return { name: f.name, status: slotStatus(r), n: r?.count ?? 0, hits: r?.hits ?? 0, judged: r?.judged ?? 0, cpt: r?.cpt ?? null };
-  });
-  const provenCount = portfolio.filter((p) => p.status === "Proven").length;
-
-  // Ungated full view (all creatives with any data) — kept for transparency.
-  const withDim = (pick: (d: Dim | undefined) => string | null) =>
-    perf.map((p) => ({ ...p, dimension: pick(dims.get(p.creative_id)) }));
-  const byFamily = rollupBy(withDim((d) => (d ? familyName(d) : null)), targetForRow);
-  const byArchetype = rollupBy(withDim((d) => d?.archetype ?? null), targetForRow);
-  const bySport = rollupBy(withDim((d) => d?.sport ?? null), targetForRow);
-
-  const learning = await latestLearnings(supabase);
-  const targetDollars = fallback != null ? `$${(fallback / 100).toFixed(2)}` : null;
+  // "What's working" — roll up by Theme and Sport from the name (each ad once).
+  const rollup = (pick: (m: Metric) => string | null) => {
+    const g = new Map<string, { key: string; spend: number; conv: number; grads: number; n: number }>();
+    for (const m of metrics) {
+      const key = pick(m) ?? "—";
+      const row = g.get(key) ?? { key, spend: 0, conv: 0, grads: 0, n: 0 };
+      row.spend += Number(m.spend || 0);
+      row.conv += Number(m.conversions || 0);
+      row.n += 1;
+      if (m.verdict === "GRADUATE") row.grads += 1;
+      g.set(key, row);
+    }
+    return [...g.values()]
+      .map((r) => ({ ...r, cpa: r.conv > 0 ? r.spend / r.conv : null }))
+      .sort((a, b) => (a.cpa ?? Infinity) - (b.cpa ?? Infinity));
+  };
+  const byTheme = rollup((m) => parseNamingConvention(m.ad_name).theme ?? null);
+  const bySport = rollup((m) => parseNamingConvention(m.ad_name).sport ?? null);
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <Link href="/ideas" className="text-sm text-white/50 hover:underline">← Ideas</Link>
-          <h1 className="mt-1 text-2xl font-semibold">Performance</h1>
-          <p className="text-sm text-white/50">
-            ${totalSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} total spend
-            {targetDollars && ` · CPT target ${targetDollars}`}
-          </p>
-        </div>
+    <main className="mx-auto max-w-6xl p-6 pb-24">
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold">Performance</h1>
+        <p className="text-sm text-white/50">
+          Creative testing — graduation report{latestFlight ? ` · ${latestFlight}` : ""}. CPA target{" "}
+          {targetDollars != null ? usd(targetDollars) : "—"}.
+        </p>
       </header>
 
-      {totalSpend === 0 && (
+      {metrics.length === 0 ? (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No performance data yet. {isStaff(user) ? "Add a weekly report to populate this." : ""}
+          No report loaded yet. {isStaff(user) ? "Add a weekly report to populate this." : ""}
         </p>
-      )}
-
-      <LearningsPanel learning={learning as Learning | null} canGenerate={isStaff(user)} />
-
-      {/* ── Portfolio (format/family slots) ──────────────────────────── */}
-      <section className="mb-10">
-        <div className="mb-1 flex items-baseline gap-2">
-          <h2 className="text-lg font-medium">Portfolio</h2>
-          <span className="font-mono text-xs text-white/40">{provenCount} of {portfolio.length} families proven</span>
-        </div>
-        <p className="mb-4 text-xs text-white/45">
-          Proven = ≥2 matured creatives clearing the target hit rate. Keep proven families producing; give
-          exploration budget to Validating and Untested.
-        </p>
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {portfolio.map((p) => (
-            <div key={p.name} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-              <span className={`h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[p.status]}`} />
-              <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
-              <span className="font-mono text-[11px] text-white/45">
-                {p.judged > 0 ? `${p.hits}/${p.judged}${p.cpt != null ? ` · $${p.cpt.toFixed(0)}` : ""}` : "—"}
-              </span>
-              <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${STATUS_PILL[p.status]}`}>{p.status}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Learnings scoreboard (gated) ─────────────────────────────── */}
-      <section className="mb-10">
-        <div className="mb-1 flex items-baseline gap-2">
-          <h2 className="text-lg font-medium">Learnings scoreboard</h2>
-          <span className="font-mono text-xs text-white/40">what&apos;s winning, by dimension</span>
-        </div>
-        <p className="mb-4 text-xs text-white/45">
-          Only mature cohorts count — ≥ {MATURE_DAYS} days since first spend and ≥ {bar} trials behind the
-          creative. Ranked by hit rate (share at/under {targetDollars ?? "target"}), then CPT.
-        </p>
-        {matured.length === 0 ? (
-          <p className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-            Nothing has matured yet — creatives appear here once they&apos;ve had ≥ {MATURE_DAYS} days live and ≥ {bar} trials.
-          </p>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {scored.map((s) => (
-              <ScoreTable key={s.label} title={s.label} rows={s.rows} targetCents={fallback} />
-            ))}
+      ) : (
+        <>
+          {/* Grand totals */}
+          <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Tile label="Spend" value={usd(totSpend)} />
+            <Tile label="Conversions" value={num(totConv)} />
+            <Tile label="Blended CPA" value={usd(blendedCpa)} accent={blendedCpa != null && targetDollars != null && blendedCpa <= targetDollars} />
+            <Tile label="Graduated" value={`${grads} / ${metrics.length}`} accent={grads > 0} />
           </div>
-        )}
-      </section>
 
-      {/* ── Ungated full view ────────────────────────────────────────── */}
-      <section>
-        <h2 className="mb-1 text-lg font-medium">All creatives</h2>
-        <p className="mb-4 text-xs text-white/45">Every creative with data — no maturity or volume gate.</p>
-        <RollupTable title="By concept family" rows={byFamily} />
-        <RollupTable title="By archetype" rows={byArchetype} />
-        <RollupTable title="By sport" rows={bySport} />
-      </section>
+          {/* Verdict groups */}
+          <div className="mb-10 space-y-6">
+            {VERDICTS.map((v) => {
+              const rows = metrics.filter((m) => m.verdict === v);
+              if (rows.length === 0) return null;
+              return (
+                <section key={v}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${VERDICT_BAR[v]}`} />
+                    <h2 className="text-lg font-medium">{VERDICT_LABEL[v]}</h2>
+                    <span className="font-mono text-xs text-white/40">{rows.length}</span>
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-white/10">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead className="bg-white/5 text-white/55">
+                        <tr>
+                          <th className="px-3 py-2 font-normal">Ad</th>
+                          <th className="px-3 py-2 text-right font-normal">Spend</th>
+                          <th className="px-3 py-2 text-right font-normal">Conv</th>
+                          <th className="px-3 py-2 text-right font-normal">CPA</th>
+                          <th className="px-3 py-2 text-right font-normal">CTR</th>
+                          <th className="px-3 py-2 text-right font-normal">ROAS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((m) => {
+                          const good = m.cpa != null && targetDollars != null && m.cpa <= targetDollars;
+                          return (
+                            <tr key={m.ad_name} className="border-t border-white/5 align-top">
+                              <td className="px-3 py-2">
+                                <div className="font-medium text-gray-100">{shortName(m.ad_name)}</div>
+                                <div className="truncate font-mono text-[10.5px] text-white/35" title={m.ad_name}>{m.ad_name}</div>
+                                {m.reason && <div className="mt-0.5 max-w-md text-[11.5px] text-white/45">{m.reason}</div>}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums text-white/80">{usd(m.spend)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums text-white/80">{num(m.conversions)}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums font-semibold ${m.cpa == null ? "text-white/40" : good ? "text-emerald-300" : "text-red-300"}`}>
+                                {usd(m.cpa)}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums text-white/70">{pct(m.ctr)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums text-white/70">{m.roas == null ? "—" : Number(m.roas).toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
+          {/* What's working — the backbone for new content */}
+          <section className="mb-10">
+            <h2 className="mb-1 text-lg font-medium">What&apos;s working</h2>
+            <p className="mb-4 text-xs text-white/45">
+              Blended CPA by the name&apos;s dimensions (each ad counted once). This is what feeds the next slate.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <RollupCard title="By theme" rows={byTheme} target={targetDollars} />
+              <RollupCard title="By sport" rows={bySport} target={targetDollars} />
+            </div>
+          </section>
+
+          {/* Agent learnings narrative */}
+          <LearningsPanel learning={learning as Learning | null} canGenerate={isStaff(user)} />
+        </>
+      )}
     </main>
   );
 }
 
-// Ranked, gated scoreboard for one dimension.
-function ScoreTable({ title, rows, targetCents }: { title: string; rows: Rollup[]; targetCents: number | null }) {
-  if (rows.length === 0) return null;
+function Tile({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="font-mono text-[10px] uppercase tracking-wide text-white/40">{label}</div>
+      <div className={`mt-1.5 text-2xl font-semibold ${accent ? "text-emerald-300" : "text-gray-50"}`}>{value}</div>
+    </div>
+  );
+}
+
+function RollupCard({
+  title,
+  rows,
+  target,
+}: {
+  title: string;
+  rows: { key: string; spend: number; conv: number; grads: number; n: number; cpa: number | null }[];
+  target: number | null;
+}) {
   return (
     <div className="overflow-hidden rounded-xl border border-white/10">
       <div className="border-b border-white/10 bg-white/5 px-3 py-2 text-sm font-medium">{title}</div>
@@ -194,69 +225,27 @@ function ScoreTable({ title, rows, targetCents }: { title: string; rows: Rollup[
         <thead className="text-white/50">
           <tr>
             <th className="px-3 py-1.5 font-normal">Value</th>
-            <th className="px-3 py-1.5 text-right font-normal">n</th>
-            <th className="px-3 py-1.5 text-right font-normal">Trials</th>
-            <th className="px-3 py-1.5 text-right font-normal">CPT</th>
-            <th className="px-3 py-1.5 text-right font-normal">Hit rate</th>
+            <th className="px-3 py-1.5 text-right font-normal">Conv</th>
+            <th className="px-3 py-1.5 text-right font-normal">CPA</th>
+            <th className="px-3 py-1.5 text-right font-normal">Grad</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
-            const hr = hitRate(r);
-            const good = targetCents != null && r.cpt != null && r.cpt <= targetCents / 100;
+            const good = r.cpa != null && target != null && r.cpa <= target;
             return (
               <tr key={r.key} className="border-t border-white/5">
                 <td className="px-3 py-1.5">{r.key}</td>
-                <td className="px-3 py-1.5 text-right text-white/60">{r.count}</td>
-                <td className="px-3 py-1.5 text-right text-white/60">{r.results}</td>
-                <td className={`px-3 py-1.5 text-right ${good ? "text-emerald-300" : r.cpt != null ? "text-red-300" : "text-white/50"}`}>
-                  {r.cpt == null ? "—" : `$${r.cpt.toFixed(2)}`}
+                <td className="px-3 py-1.5 text-right tabular-nums text-white/60">{r.conv}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${r.cpa == null ? "text-white/40" : good ? "text-emerald-300" : "text-red-300"}`}>
+                  {usd(r.cpa)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-white/70">
-                  {hr == null ? "—" : `${Math.round(hr * 100)}% (${r.hits}/${r.judged})`}
-                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-white/60">{r.grads}/{r.n}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
     </div>
-  );
-}
-
-function RollupTable({ title, rows }: { title: string; rows: Rollup[] }) {
-  if (rows.length === 0) return null;
-  return (
-    <section className="mb-8">
-      <h3 className="mb-2 text-sm font-medium text-white/70">{title}</h3>
-      <div className="overflow-hidden rounded-xl border border-white/10">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-white/5 text-white/60">
-            <tr>
-              <th className="px-3 py-2">{title.replace("By ", "")}</th>
-              <th className="px-3 py-2 text-right">Creatives</th>
-              <th className="px-3 py-2 text-right">Spend</th>
-              <th className="px-3 py-2 text-right">CTR</th>
-              <th className="px-3 py-2 text-right">Results</th>
-              <th className="px-3 py-2 text-right">CPT</th>
-              <th className="px-3 py-2 text-right">Hit rate</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.key} className="border-t border-white/5">
-                <td className="px-3 py-2">{r.key}</td>
-                <td className="px-3 py-2 text-right text-white/70">{r.count}</td>
-                <td className="px-3 py-2 text-right">${r.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                <td className="px-3 py-2 text-right text-white/70">{r.ctr == null ? "—" : `${(r.ctr * 100).toFixed(2)}%`}</td>
-                <td className="px-3 py-2 text-right text-white/70">{r.results}</td>
-                <td className="px-3 py-2 text-right">{r.cpt == null ? "—" : `$${r.cpt.toFixed(2)}`}</td>
-                <td className="px-3 py-2 text-right text-white/70">{r.judged === 0 ? "—" : `${r.hits}/${r.judged}`}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
