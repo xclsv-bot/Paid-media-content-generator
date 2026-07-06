@@ -30,7 +30,7 @@ export default async function IdeasPage() {
   if (user?.role === "creator") redirect("/queue");
 
   const supabase = await createClient();
-  const [{ data }, { data: perf }, { data: vids }] = await Promise.all([
+  const [{ data }, { data: perf }, { data: vids }, { data: delivs }] = await Promise.all([
     supabase
       .from("creatives")
       .select(
@@ -42,6 +42,7 @@ export default async function IdeasPage() {
       .order("created_at", { ascending: false }),
     supabase.from("creative_performance").select("creative_id, cpt, spend"),
     supabase.from("video_assets").select("creative_id"),
+    supabase.from("deliverables").select("concept_id"),
   ]);
 
   const cptByConcept = new Map<string, number | null>();
@@ -50,6 +51,8 @@ export default async function IdeasPage() {
   });
   const withVideo = new Set<string>();
   (vids ?? []).forEach((v: { creative_id: string }) => withVideo.add(v.creative_id));
+  const scheduled = new Set<string>();
+  (delivs ?? []).forEach((d: { concept_id: string }) => scheduled.add(d.concept_id));
 
   const rows: IdeaRow[] = ((data ?? []) as unknown as Row[]).map((r) => {
     const cpt = cptByConcept.get(r.id) ?? null;
@@ -67,6 +70,7 @@ export default async function IdeasPage() {
       cpt,
       hit,
       has_video: withVideo.has(r.id),
+      in_cycle: scheduled.has(r.id),
     };
   });
 
