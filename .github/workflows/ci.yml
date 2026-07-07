@@ -72,3 +72,6 @@ jobs:
       # A-1: exercise the RLS policies as each role; a failed assertion fails CI.
       - name: RLS / authorization tests
         run: psql -v ON_ERROR_STOP=1 -f ci/rls_tests.sql
+      # Golden Set trust rules: curation survives refresh; rows are complete.
+      - name: Golden Set tests
+        run: psql -v ON_ERROR_STOP=1 -f ci/golden_tests.sql
