@@ -77,8 +77,8 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
   // /api/winners/refresh computes. Neither list is ever an inline CPT slice
   // over raw performance, which lacks those gates.
   const [cache, bad] = await Promise.all([
-    getCachedWinners(supabase, 5),
-    getBadExamples(supabase, 5),
+    getCachedWinners(supabase, orgId, 5),
+    getBadExamples(supabase, orgId, 5),
   ]);
   const losers = bad.examples.filter((b) => b.kind === "proven_loser");
 

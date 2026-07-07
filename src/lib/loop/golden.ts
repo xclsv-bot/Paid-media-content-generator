@@ -15,7 +15,7 @@ export { goldenMax };
 // What the refresh route collects per qualifying winner before joining scripts.
 export type GoldenQualifier = {
   creative_id: string;
-  client_org: string;
+  org_id: string;
   score: number;
   reason: string; // deterministic why-it-won from evaluateWinner
   cpt_cents: number;
@@ -31,7 +31,7 @@ export type GoldenQualifier = {
 
 export type GoldenExample = {
   creative_id: string;
-  client_org: string;
+  org_id: string;
   script: string;
   script_version: number | null;
   why_it_won: string;
@@ -79,18 +79,22 @@ export function findNearDuplicate(
   return null;
 }
 
-// The consumable golden set, best-first, pinned included, tombstones excluded.
+// The consumable golden set FOR ONE ORG, best-first, pinned included,
+// tombstones excluded. orgId filters explicitly - service-role callers bypass
+// RLS, and one client's scripts must never ground another's prompts.
 // Every prompt/UI consumer must read through here (or replicate the
 // status filter) — a 'removed' row is a curator veto, never an example.
 export async function getGoldenExamples(
   supabase: SupabaseClient,
+  orgId: string,
   limit: number,
 ): Promise<{ examples: GoldenExample[]; error: string | null }> {
   const { data, error } = await supabase
     .from("golden_examples")
     .select(
-      "creative_id, client_org, script, script_version, why_it_won, dimensions, source, status, score, cpt_cents, results, target_cents, captured_at",
+      "creative_id, org_id, script, script_version, why_it_won, dimensions, source, status, score, cpt_cents, results, target_cents, captured_at",
     )
+    .eq("org_id", orgId)
     .neq("status", "removed")
     .order("score", { ascending: false })
     .limit(limit);

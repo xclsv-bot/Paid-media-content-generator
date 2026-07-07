@@ -10,13 +10,13 @@
 -- how the route passes config values.
 
 -- ---- fixtures ----
-insert into public.concept_families (id, name) values
-  ('88888888-0000-0000-0000-00000000000f', 'Loser Family')
+insert into public.concept_families (id, org_id, name) values
+  ('88888888-0000-0000-0000-00000000000f', '99999999-9999-9999-9999-999999999992', 'Loser Family')
 on conflict do nothing;
 
-insert into public.creatives (id, client_org, concept_family_id, hook_line, hook_angle, archetype, sport, format) values
-  ('88888888-0000-0000-0000-000000000001', 'Outlier', '88888888-0000-0000-0000-00000000000f', 'Loser A', 'Angle A', 'Qualifier', 'NFL', '9:16'),
-  ('88888888-0000-0000-0000-000000000002', 'Outlier', '88888888-0000-0000-0000-00000000000f', 'Loser B', 'Angle B', 'Mixed', 'NBA', '9:16');
+insert into public.creatives (id, org_id, concept_family_id, hook_line, hook_angle, archetype, sport, format) values
+  ('88888888-0000-0000-0000-000000000001', '99999999-9999-9999-9999-999999999992', '88888888-0000-0000-0000-00000000000f', 'Loser A', 'Angle A', 'Qualifier', 'NFL', '9:16'),
+  ('88888888-0000-0000-0000-000000000002', '99999999-9999-9999-9999-999999999992', '88888888-0000-0000-0000-00000000000f', 'Loser B', 'Angle B', 'Mixed', 'NBA', '9:16');
 
 insert into public.scripts (id, concept_id, body, version) values
   ('88888888-1111-0000-0000-000000000001', '88888888-0000-0000-0000-000000000001', 'Losing script A', 1),
@@ -33,7 +33,7 @@ create or replace function pg_temp.bcand(
 ) returns jsonb language sql as $$
   select jsonb_build_object(
     'creative_id', cid,
-    'client_org', 'Outlier',
+    'org_id', '99999999-9999-9999-9999-999999999992',
     'script', 'Losing script A',
     'script_version', 1,
     'reason', why,
@@ -135,9 +135,9 @@ begin
   -- reasonless rejection fails to insert
   begin
     insert into public.bad_examples
-      (kind, creative_id, client_org, script, script_version, reason, dimensions, review_id)
+      (kind, creative_id, org_id, script, script_version, reason, dimensions, review_id)
     values
-      ('review_rejection', '88888888-0000-0000-0000-000000000001', 'Outlier',
+      ('review_rejection', '88888888-0000-0000-0000-000000000001', '99999999-9999-9999-9999-999999999992',
        'Losing script A', 1, '', '{"family":null,"hook_line":null,"hook_angle":null,"archetype":null,"sport":null,"format":null}'::jsonb,
        '88888888-2222-0000-0000-000000000001');
   exception when check_violation then ok := true;
@@ -148,9 +148,9 @@ begin
   ok := false;
   begin
     insert into public.bad_examples
-      (kind, creative_id, client_org, script, script_version, reason, dimensions)
+      (kind, creative_id, org_id, script, script_version, reason, dimensions)
     values
-      ('review_rejection', '88888888-0000-0000-0000-000000000001', 'Outlier',
+      ('review_rejection', '88888888-0000-0000-0000-000000000001', '99999999-9999-9999-9999-999999999992',
        'Losing script A', 1, 'Compliance: names a competitor app',
        '{"family":null,"hook_line":null,"hook_angle":null,"archetype":null,"sport":null,"format":null}'::jsonb);
   exception when check_violation then ok := true;
@@ -159,9 +159,9 @@ begin
 
   -- a rejection WITH its compliance reason inserts fine
   insert into public.bad_examples
-    (kind, creative_id, client_org, script, script_version, reason, dimensions, review_id)
+    (kind, creative_id, org_id, script, script_version, reason, dimensions, review_id)
   values
-    ('review_rejection', '88888888-0000-0000-0000-000000000001', 'Outlier',
+    ('review_rejection', '88888888-0000-0000-0000-000000000001', '99999999-9999-9999-9999-999999999992',
      'Losing script A', 1, 'Compliance: names a competitor app',
      '{"family":"Loser Family","hook_line":"Loser A","hook_angle":"Angle A","archetype":"Qualifier","sport":"NFL","format":"9:16"}'::jsonb,
      '88888888-2222-0000-0000-000000000001');
@@ -196,9 +196,9 @@ begin
   -- creator cannot write
   begin
     insert into public.bad_examples
-      (kind, creative_id, client_org, script, reason, dimensions, cpt_cents, target_cents,
+      (kind, creative_id, org_id, script, reason, dimensions, cpt_cents, target_cents,
        results, spend_cents, first_spend_date, gates)
-    values ('proven_loser', '88888888-0000-0000-0000-000000000002', 'Outlier', 's', 'r',
+    values ('proven_loser', '88888888-0000-0000-0000-000000000002', '99999999-9999-9999-9999-999999999992', 's', 'r',
        '{"family":null,"hook_line":null,"hook_angle":null,"archetype":null,"sport":null,"format":null}'::jsonb,
        9000, 3000, 40, 100000, current_date - 30, '{}'::jsonb);
   exception when others then ok := true;

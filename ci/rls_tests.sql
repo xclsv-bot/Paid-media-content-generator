@@ -163,7 +163,7 @@ begin
   raise notice 'ok - content_cache: winners are org-scoped';
 end $$;
 
--- 9) 0012 (single_active_cycle): at most one Active cycle PER ORG; a different
+-- 9) 0017 (single_active_cycle): at most one Active cycle PER ORG; a different
 -- org may also be Active.
 do $$
 begin

@@ -4,11 +4,10 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
-import { latestOrganicSignals, organicSignalsPromptBlock } from "@/lib/loop/organic";
-import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
 import { findNearDuplicate, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
+import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
@@ -75,10 +74,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "org_id is required" }, { status: 400 });
   }
 
-  // Ground the model in the existing slate + what's winning — org-scoped: once
-  // a second client's data exists in these tables, an unfiltered query would
-  // mix one client's proprietary scripts/CPT figures/compliance notes into
-  // another's grounding.
+  // Ground the model in the existing slate + what's winning — org-scoped: every
+  // read below filters by orgId so one client's scripts/CPT figures/compliance
+  // notes never ground another client's session.
   const supabase = await createClient();
   const { data: org } = await supabase
     .from("organizations")
@@ -89,16 +87,13 @@ export async function POST(req: Request) {
   const clientDesc = org.voice_note ?? org.display_name;
 
   const target = defaultTargetCents(); // cents; contract Target CPT ($30)
-  const [{ data: families }, { data: proven }, { data: perf }] = await Promise.all([
+  const [{ data: families }, { data: proven }, cache, golden, bad, patterns] = await Promise.all([
     supabase.from("concept_families").select("name").eq("org_id", orgId).order("name"),
     supabase.from("creatives").select("hook_line, hook_angle, sport").eq("org_id", orgId).eq("is_proven", true).limit(8),
-    supabase.from("creative_performance").select("creative_id, spend, cpt").eq("org_id", orgId).gt("spend", 0),
-  const [{ data: families }, { data: proven }, cache, golden, bad] = await Promise.all([
-    supabase.from("concept_families").select("name").order("name"),
-    supabase.from("creatives").select("hook_line, hook_angle, sport").eq("is_proven", true).limit(8),
-    getCachedWinners(supabase, 8),
-    getGoldenExamples(supabase, 6),
-    getBadExamples(supabase, 6),
+    getCachedWinners(supabase, orgId, 8),
+    getGoldenExamples(supabase, orgId, 6),
+    getBadExamples(supabase, orgId, 6),
+    latestCrossClientPatterns(supabase),
   ]);
   const familyList = (families ?? []).map((f: { name: string }) => f.name).join(", ");
   const provenList = (proven ?? [])
@@ -106,45 +101,6 @@ export async function POST(req: Request) {
       `• "${p.hook_line}" — ${p.hook_angle ?? "?"} / ${p.sport ?? "?"}`)
     .join("\n");
 
-  // Live performance signals: label each spent concept Hit/Miss vs the CPT target.
-  type PerfRow = { creative_id: string; spend: number | null; cpt: number | null };
-  type Label = {
-    id: string;
-    hook_line: string | null;
-    hook_angle: string | null;
-    archetype: string | null;
-    sport: string | null;
-    cpt_target_cents: number | null;
-    concept_families: { name: string } | { name: string }[] | null;
-  };
-  const perfRows = ((perf ?? []) as PerfRow[]).filter((r) => r.cpt != null);
-  let perfSignals = "(no live performance data yet — connect Meta or import a CSV)";
-  if (perfRows.length) {
-    const { data: labels } = await supabase
-      .from("creatives")
-      .select("id, hook_line, hook_angle, archetype, sport, cpt_target_cents, concept_families(name)")
-      .eq("org_id", orgId)
-      .in("id", perfRows.map((r) => r.creative_id));
-    const byId = new Map<string, Label>();
-    ((labels ?? []) as unknown as Label[]).forEach((c) => byId.set(c.id, c));
-    const enriched = perfRows.map((r) => {
-      const c = byId.get(r.creative_id);
-      const famRaw = c?.concept_families;
-      const fam = !famRaw ? "?" : Array.isArray(famRaw) ? famRaw[0]?.name ?? "?" : famRaw.name;
-      const cpt = Number(r.cpt);
-      return {
-        cpt,
-        hit: isHit(cpt, c?.cpt_target_cents ?? target),
-        line: `• "${c?.hook_line ?? "?"}" — ${fam} / ${c?.hook_angle ?? "?"} / ${c?.archetype ?? "?"} / ${c?.sport ?? "?"} · CPT $${cpt.toFixed(2)}`,
-      };
-    });
-    const winners = enriched.filter((e) => e.hit === true).sort((a, b) => a.cpt - b.cpt).slice(0, 8);
-    const misses = enriched.filter((e) => e.hit === false).sort((a, b) => b.cpt - a.cpt).slice(0, 6);
-    perfSignals =
-      [
-        winners.length ? `TOP PERFORMERS (CPT at/under target):\n${winners.map((e) => e.line).join("\n")}` : "",
-        misses.length ? `UNDERPERFORMING (CPT over target):\n${misses.map((e) => e.line).join("\n")}` : "",
-      ].filter(Boolean).join("\n\n") || "(spend exists but nothing is judged against target yet)";
   // Live performance signals come from the loop's stores — the winners cache,
   // the golden set, and the bad-example store, all gated at write time by
   // /api/winners/refresh — never an inline Hit/CPT filter here.
@@ -179,9 +135,7 @@ export async function POST(req: Request) {
       : EMPTY_BAD_NOTE;
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
   const learnBlock = learningsPromptBlock(await latestLearnings(supabase, orgId));
-  const organicBlock = organicSignalsPromptBlock(await latestOrganicSignals(supabase));
-  const patternsBlock = crossClientPatternsPromptBlock(await latestCrossClientPatterns(supabase));
-  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
+  const patternsBlock = crossClientPatternsPromptBlock(patterns);
 
   const sourceList = (sources ?? [])
     .map((s) => `• [${s.type ?? "ref"}] ${s.name ?? ""}${s.note ? ` — ${s.note}` : ""}`)
@@ -207,7 +161,6 @@ ${learnBlock || ""}
 
 ${patternsBlock || ""}
 
-When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. If a concept is inspired by organic signal rather than the live CPT data above, say so explicitly in the hypothesis (e.g. "testing whether this organically-trending hook clears the $30 CPT gate") — organic signal is a hypothesis source, never a substitute for the CPT gate. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
   const apiMessages = messages.map((m) => ({

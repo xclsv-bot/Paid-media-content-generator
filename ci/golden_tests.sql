@@ -11,14 +11,14 @@
 --   is pruned, and no consumable row is missing a required field.
 
 -- ---- fixtures: three winners with scripts ----
-insert into public.concept_families (id, name) values
-  ('99999999-0000-0000-0000-00000000000f', 'Golden Family')
+insert into public.concept_families (id, org_id, name) values
+  ('99999999-0000-0000-0000-00000000000f', '99999999-9999-9999-9999-999999999992', 'Golden Family')
 on conflict do nothing;
 
-insert into public.creatives (id, client_org, concept_family_id, hook_line, hook_angle, archetype, sport, format) values
-  ('99999999-0000-0000-0000-000000000001', 'Outlier', '99999999-0000-0000-0000-00000000000f', 'Winner A', 'Angle A', 'Qualifier', 'NFL', '9:16'),
-  ('99999999-0000-0000-0000-000000000002', 'Outlier', '99999999-0000-0000-0000-00000000000f', 'Winner B', 'Angle B', 'Broad-appeal', 'NBA', '9:16'),
-  ('99999999-0000-0000-0000-000000000003', 'Outlier', '99999999-0000-0000-0000-00000000000f', 'Winner C', 'Angle C', 'Mixed', 'MLB', '9:16');
+insert into public.creatives (id, org_id, concept_family_id, hook_line, hook_angle, archetype, sport, format) values
+  ('99999999-0000-0000-0000-000000000001', '99999999-9999-9999-9999-999999999992', '99999999-0000-0000-0000-00000000000f', 'Winner A', 'Angle A', 'Qualifier', 'NFL', '9:16'),
+  ('99999999-0000-0000-0000-000000000002', '99999999-9999-9999-9999-999999999992', '99999999-0000-0000-0000-00000000000f', 'Winner B', 'Angle B', 'Broad-appeal', 'NBA', '9:16'),
+  ('99999999-0000-0000-0000-000000000003', '99999999-9999-9999-9999-999999999992', '99999999-0000-0000-0000-00000000000f', 'Winner C', 'Angle C', 'Mixed', 'MLB', '9:16');
 
 insert into public.scripts (concept_id, body, version) values
   ('99999999-0000-0000-0000-000000000001', 'Script A v1', 1),
@@ -30,7 +30,7 @@ create or replace function pg_temp.cand(cid uuid, hook text, script text, sc num
 returns jsonb language sql as $$
   select jsonb_build_object(
     'creative_id', cid,
-    'client_org', 'Outlier',
+    'org_id', '99999999-9999-9999-9999-999999999992',
     'script', script,
     'script_version', 1,
     'why_it_won', 'Hit: CPT $20.00 <= $30.00 over 40 trials',
@@ -145,10 +145,10 @@ begin
   ok := false;
   begin
     insert into public.golden_examples
-      (creative_id, client_org, script, why_it_won, dimensions, source, status,
+      (creative_id, org_id, script, why_it_won, dimensions, source, status,
        score, cpt_cents, results, target_cents)
     values
-      ('99999999-0000-0000-0000-000000000003', 'Outlier', 'Script C', 'why',
+      ('99999999-0000-0000-0000-000000000003', '99999999-9999-9999-9999-999999999992', 'Script C', 'why',
        '{"family":"x"}'::jsonb, 'auto', 'active', 1, 2000, 40, 3000);
   exception when check_violation then ok := true;
   end;

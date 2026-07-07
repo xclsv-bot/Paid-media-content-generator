@@ -5,7 +5,7 @@ import { badExampleLine, type BadExample } from "@/lib/loop/bad";
 function golden(dims: Partial<GoldenExample["dimensions"]>): GoldenExample {
   return {
     creative_id: "c-1",
-    client_org: "Outlier",
+    org_id: "99999999-9999-9999-9999-999999999992",
     script: "s",
     script_version: 1,
     why_it_won: "w",
@@ -76,7 +76,7 @@ describe("badExampleLine", () => {
   const base = {
     id: "b-1",
     creative_id: "c-1",
-    client_org: "Outlier",
+    org_id: "99999999-9999-9999-9999-999999999992",
     script: "s",
     script_version: 1,
     dimensions: {

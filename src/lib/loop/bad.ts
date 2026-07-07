@@ -13,7 +13,7 @@ export type BadExample = {
   id: string;
   kind: "proven_loser" | "review_rejection";
   creative_id: string;
-  client_org: string;
+  org_id: string;
   script: string;
   script_version: number | null;
   reason: string;
@@ -44,16 +44,18 @@ export const EMPTY_BAD_NOTE =
 // "empty" from "couldn't read".
 export async function getBadExamples(
   supabase: SupabaseClient,
+  orgId: string,
   limit: number,
 ): Promise<{ examples: BadExample[]; error: string | null }> {
   const cols =
-    "id, kind, creative_id, client_org, script, script_version, reason, dimensions, cpt_cents, target_cents, results, captured_at";
+    "id, kind, creative_id, org_id, script, script_version, reason, dimensions, cpt_cents, target_cents, results, captured_at";
   const [loserRes, rejRes] = await Promise.all([
     // The refresh prunes proven losers to BAD_MAX, so this reads the whole set.
-    supabase.from("bad_examples").select(cols).eq("kind", "proven_loser").limit(limit),
+    supabase.from("bad_examples").select(cols).eq("org_id", orgId).eq("kind", "proven_loser").limit(limit),
     supabase
       .from("bad_examples")
       .select(cols)
+      .eq("org_id", orgId)
       .eq("kind", "review_rejection")
       .order("captured_at", { ascending: false })
       .limit(limit),

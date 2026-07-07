@@ -21,9 +21,8 @@ export type ConceptFields = {
 };
 
 const EMPTY: ConceptFields = {
-  org_id: "", family: "", hook_line: "", hypothesis: "", content_summary: "", hook_angle: "",
-  family: "", ad_name: "", hook_line: "", hypothesis: "", content_summary: "", hook_angle: "",
-  archetype: "", sport: "", feature_pillar: "", format: "", cta: "",
+  org_id: "", family: "", ad_name: "", hook_line: "", hypothesis: "", content_summary: "",
+  hook_angle: "", archetype: "", sport: "", feature_pillar: "", format: "", cta: "",
   variant_differentiator: "", compliance_note: "",
 };
 

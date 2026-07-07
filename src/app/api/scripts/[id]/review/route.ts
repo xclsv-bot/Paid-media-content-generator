@@ -55,12 +55,11 @@ export async function POST(
   const { data: c } = await supabase
     .from("creatives")
     .select("org_id, hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)")
-    .select("client_org, hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
     .eq("id", script.concept_id)
     .single();
   if (!c) return NextResponse.json({ error: "Concept not found" }, { status: 404 });
-  const fam = Array.isArray(c?.concept_families) ? c?.concept_families[0] : c?.concept_families;
-  const org = Array.isArray(c?.organizations) ? c?.organizations[0] : c?.organizations;
+  const fam = Array.isArray(c.concept_families) ? c.concept_families[0] : c.concept_families;
+  const org = Array.isArray(c.organizations) ? c.organizations[0] : c.organizations;
   const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
   const clientName = org?.display_name ?? "the client";
 
@@ -85,15 +84,13 @@ ${rubricText(clientName)}
 
 Compliance is a hard gate: if the script risks any compliance rule, score compliance below ${PASS_BAR} and list the exact risk in compliance_flags. weaknesses and suggestions must be specific and actionable (quote the line, say the fix) — no generic praise.`;
 
-  const learnBlock = learningsPromptBlock(await latestLearnings(supabase, c.org_id));
-  const systemFull = learnBlock ? `${system}\n\n${learnBlock}` : system;
   // Ground the checker in the example stores: what passing looks like (golden
   // why-it-wons) and what has already been rejected (compliance reasons).
   // Kept compact — the rubric stays the gate; these are calibration, not rules.
   const [learn, golden, bad] = await Promise.all([
-    latestLearnings(supabase),
-    getGoldenExamples(supabase, 2),
-    getBadExamples(supabase, 3),
+    latestLearnings(supabase, c.org_id),
+    getGoldenExamples(supabase, c.org_id, 2),
+    getBadExamples(supabase, c.org_id, 3),
   ]);
   const rejectionReasons = bad.examples
     .filter((b) => b.kind === "review_rejection")
@@ -165,7 +162,7 @@ Compliance is a hard gate: if the script risks any compliance rule, score compli
       const { error: beErr } = await supabase.from("bad_examples").insert({
         kind: "review_rejection",
         creative_id: script.concept_id,
-        client_org: c?.client_org,
+        org_id: c.org_id,
         script: script.body,
         script_version: script.version,
         reason: `Compliance: ${flags.join("; ")}`,

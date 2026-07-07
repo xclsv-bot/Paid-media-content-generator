@@ -31,7 +31,7 @@ export async function generateLearnings(
 
   const { data: org } = await supabase
     .from("organizations")
-    .select("display_name, voice_note")
+    .select("slug, display_name, voice_note")
     .eq("id", orgId)
     .single();
   const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
@@ -65,7 +65,7 @@ Be specific and grounded in the numbers: name the families/angles/audiences/form
     const { data: saved, error } = await supabase
       .from("learnings")
       .insert({
-        scope: "global",
+        scope: org?.slug ?? "global",
         org_id: orgId,
         narrative: parsed.narrative ?? "",
         do_more: parsed.do_more ?? [],

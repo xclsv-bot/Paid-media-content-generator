@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0017_org_scope_shared_tables.sql — org-scope concept_families and hook_angles.
+-- 0022_org_scope_shared_tables.sql — org-scope concept_families and hook_angles.
 --
 -- These were "global" tables (no org column), which an earlier design (the
 -- organic_signals migration, 0012) assumed made them safe generic vocabulary.

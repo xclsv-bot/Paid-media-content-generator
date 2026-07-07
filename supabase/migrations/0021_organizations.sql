@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0016_organizations.sql — replace the org_type enum with a real organizations
+-- 0021_organizations.sql — replace the org_type enum with a real organizations
 -- table + org_id FK, so a new client can be added without an ALTER TYPE ...
 -- ADD VALUE migration. See docs/MEETING_INSIGHTS_2026-06-25.md backlog item 3.
 --
@@ -116,8 +116,177 @@ update public.learnings set org_id = '99999999-9999-9999-9999-999999999992'; -- 
 alter table public.learnings alter column org_id set not null;
 create index on public.learnings (org_id, created_at desc);
 
+-- ---------- golden_examples.client_org -> org_id (Golden Set, 0018) ----------
+-- Policies (staff/creator-only) and CHECK constraints don't reference the
+-- column, so only the column itself moves; dropping it auto-drops its index.
+alter table public.golden_examples add column org_id uuid references public.organizations (id);
+update public.golden_examples g set org_id = o.id from public.organizations o where o.slug = lower(g.client_org::text);
+alter table public.golden_examples alter column org_id set not null;
+alter table public.golden_examples drop column client_org;
+create index on public.golden_examples (org_id, score desc);
+
+-- ---------- bad_examples.client_org -> org_id (Bad-Example store, 0019) ----------
+alter table public.bad_examples add column org_id uuid references public.organizations (id);
+update public.bad_examples b set org_id = o.id from public.organizations o where o.slug = lower(b.client_org::text);
+alter table public.bad_examples alter column org_id set not null;
+alter table public.bad_examples drop column client_org;
+create index on public.bad_examples (org_id, kind);
+
 -- Last of the org_type-dependent drops — nothing references the type anymore.
 drop type public.org_type;
+
+-- ---------- recreate the example-store refresh functions, org_id-typed ----------
+-- Their bodies cast candidate JSON through the org_type enum; a body isn't
+-- validated at DROP TYPE time, so without this they'd apply cleanly and then
+-- fail at the next refresh run. Same signatures => existing grants survive.
+create or replace function public.apply_golden_refresh(candidates jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  n_upserted int;
+  n_pruned   int;
+begin
+  with cand as (
+    select
+      (c ->> 'creative_id')::uuid       as creative_id,
+      (c ->> 'org_id')::uuid            as org_id,
+      c ->> 'script'                    as script,
+      (c ->> 'script_version')::int     as script_version,
+      c ->> 'why_it_won'                as why_it_won,
+      c -> 'dimensions'                 as dimensions,
+      (c ->> 'score')::numeric          as score,
+      (c ->> 'cpt_cents')::int          as cpt_cents,
+      (c ->> 'results')::int            as results,
+      (c ->> 'target_cents')::int       as target_cents
+    from jsonb_array_elements(coalesce(candidates, '[]'::jsonb)) as c
+  )
+  insert into golden_examples
+    (creative_id, org_id, script, script_version, why_it_won, dimensions,
+     source, status, score, cpt_cents, results, target_cents, captured_at)
+  select
+    creative_id, org_id, script, script_version, why_it_won, dimensions,
+    'auto', 'active', score, cpt_cents, results, target_cents, now()
+  from cand
+  on conflict (creative_id) do update set
+    org_id         = excluded.org_id,
+    script         = excluded.script,
+    script_version = excluded.script_version,
+    why_it_won     = excluded.why_it_won,
+    dimensions     = excluded.dimensions,
+    source         = 'auto',
+    score          = excluded.score,
+    cpt_cents      = excluded.cpt_cents,
+    results        = excluded.results,
+    target_cents   = excluded.target_cents,
+    captured_at    = now()
+  where golden_examples.status = 'active';
+  get diagnostics n_upserted = row_count;
+
+  delete from golden_examples g
+  where g.status = 'active'
+    and not exists (
+      select 1
+      from jsonb_array_elements(coalesce(candidates, '[]'::jsonb)) as c
+      where (c ->> 'creative_id')::uuid = g.creative_id
+    );
+  get diagnostics n_pruned = row_count;
+
+  return jsonb_build_object('upserted', n_upserted, 'pruned', n_pruned);
+end;
+$$;
+
+create or replace function public.apply_bad_refresh(
+  candidates     jsonb,
+  min_results    int,
+  cpt_multiplier numeric,
+  mature_days    int
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  offender  jsonb;
+  n_upserted int;
+  n_pruned   int;
+begin
+  if min_results is null or min_results < 1
+     or cpt_multiplier is null or cpt_multiplier < 1
+     or mature_days is null or mature_days < 0 then
+    raise exception 'apply_bad_refresh: invalid thresholds (min_results=%, cpt_multiplier=%, mature_days=%)',
+      min_results, cpt_multiplier, mature_days;
+  end if;
+
+  select c into offender
+  from jsonb_array_elements(coalesce(candidates, '[]'::jsonb)) as c
+  where (c ->> 'first_spend_date') is null
+     or (c ->> 'first_spend_date')::date > current_date - mature_days
+     or coalesce((c ->> 'results')::int, 0) < min_results
+     or coalesce((c ->> 'cpt_cents')::numeric, 0)
+        < (c ->> 'target_cents')::numeric * cpt_multiplier
+  limit 1;
+  if offender is not null then
+    raise exception 'apply_bad_refresh: candidate % fails a loser gate (need first spend <= %, results >= %, cpt >= % x target); got first_spend=%, results=%, cpt_cents=%, target_cents=%',
+      offender ->> 'creative_id', current_date - mature_days, min_results, cpt_multiplier,
+      offender ->> 'first_spend_date', offender ->> 'results',
+      offender ->> 'cpt_cents', offender ->> 'target_cents';
+  end if;
+
+  with cand as (
+    select
+      (c ->> 'creative_id')::uuid        as creative_id,
+      (c ->> 'org_id')::uuid             as org_id,
+      c ->> 'script'                     as script,
+      (c ->> 'script_version')::int      as script_version,
+      c ->> 'reason'                     as reason,
+      c -> 'dimensions'                  as dimensions,
+      (c ->> 'cpt_cents')::int           as cpt_cents,
+      (c ->> 'target_cents')::int        as target_cents,
+      (c ->> 'results')::int             as results,
+      (c ->> 'spend_cents')::int         as spend_cents,
+      (c ->> 'first_spend_date')::date   as first_spend_date
+    from jsonb_array_elements(coalesce(candidates, '[]'::jsonb)) as c
+  )
+  insert into bad_examples
+    (kind, creative_id, org_id, script, script_version, reason, dimensions,
+     cpt_cents, target_cents, results, spend_cents, first_spend_date, gates, captured_at)
+  select
+    'proven_loser', creative_id, org_id, script, script_version, reason, dimensions,
+    cpt_cents, target_cents, results, spend_cents, first_spend_date,
+    jsonb_build_object('min_results', min_results, 'cpt_multiplier', cpt_multiplier, 'mature_days', mature_days),
+    now()
+  from cand
+  on conflict (creative_id) where kind = 'proven_loser' do update set
+    org_id           = excluded.org_id,
+    script           = excluded.script,
+    script_version   = excluded.script_version,
+    reason           = excluded.reason,
+    dimensions       = excluded.dimensions,
+    cpt_cents        = excluded.cpt_cents,
+    target_cents     = excluded.target_cents,
+    results          = excluded.results,
+    spend_cents      = excluded.spend_cents,
+    first_spend_date = excluded.first_spend_date,
+    gates            = excluded.gates,
+    captured_at      = now();
+  get diagnostics n_upserted = row_count;
+
+  delete from bad_examples b
+  where b.kind = 'proven_loser'
+    and not exists (
+      select 1
+      from jsonb_array_elements(coalesce(candidates, '[]'::jsonb)) as c
+      where (c ->> 'creative_id')::uuid = b.creative_id
+    );
+  get diagnostics n_pruned = row_count;
+
+  return jsonb_build_object('upserted', n_upserted, 'pruned', n_pruned);
+end;
+$$;
 
 -- ---------- repoint creative_performance view to expose org_id (additive) ----------
 create or replace view public.creative_performance
