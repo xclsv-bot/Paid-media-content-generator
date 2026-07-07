@@ -75,3 +75,7 @@ jobs:
       # Golden Set trust rules: curation survives refresh; rows are complete.
       - name: Golden Set tests
         run: psql -v ON_ERROR_STOP=1 -f ci/golden_tests.sql
+      # Bad-Example gates: only mature + volume-gated + over-target losers
+      # land; every stored rejection carries its compliance reason.
+      - name: Bad-Example tests
+        run: psql -v ON_ERROR_STOP=1 -f ci/bad_tests.sql

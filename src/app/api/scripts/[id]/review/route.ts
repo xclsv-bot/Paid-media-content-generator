@@ -52,7 +52,7 @@ export async function POST(
 
   const { data: c } = await supabase
     .from("creatives")
-    .select("hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
+    .select("client_org, hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
     .eq("id", script.concept_id)
     .single();
   const fam = Array.isArray(c?.concept_families) ? c?.concept_families[0] : c?.concept_families;
@@ -126,7 +126,34 @@ Compliance is a hard gate: if the script risks any compliance rule, score compli
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ review: saved });
+
+    // A compliance rejection is a free pre-spend bad example — but only when
+    // it carries its reason (the flags). A reasonless rejection is never
+    // persisted: the route doesn't attempt it, and bad_examples' non-empty
+    // reason CHECK would refuse it anyway. Failures are reported, not
+    // swallowed — the review itself is already saved either way.
+    let rejection: { captured: boolean; error?: string } | undefined;
+    if (verdict === "revise" && flags.length > 0) {
+      const { error: beErr } = await supabase.from("bad_examples").insert({
+        kind: "review_rejection",
+        creative_id: script.concept_id,
+        client_org: c?.client_org,
+        script: script.body,
+        script_version: script.version,
+        reason: `Compliance: ${flags.join("; ")}`,
+        dimensions: {
+          family: fam?.name ?? null,
+          hook_line: c?.hook_line ?? null,
+          hook_angle: c?.hook_angle ?? null,
+          archetype: c?.archetype ?? null,
+          sport: c?.sport ?? null,
+          format: c?.format ?? null,
+        },
+        review_id: saved.id,
+      });
+      rejection = beErr ? { captured: false, error: beErr.message } : { captured: true };
+    }
+    return NextResponse.json({ review: saved, rejection });
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) {
       return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
