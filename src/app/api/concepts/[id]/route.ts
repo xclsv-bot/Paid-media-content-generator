@@ -20,7 +20,7 @@ export async function PATCH(
   const textFields = [
     "hook_line", "hypothesis", "content_summary", "hook_angle",
     "feature_pillar", "sport", "format", "cta", "variant_differentiator",
-    "compliance_note", "script_doc_url",
+    "compliance_note", "script_doc_url", "ad_name",
   ];
   for (const f of textFields) if (f in b) patch[f] = b[f] || null;
   if ("archetype" in b) patch.archetype = ARCHETYPES.includes(b.archetype) ? b.archetype : null;

@@ -52,6 +52,7 @@ export async function POST(req: Request) {
     .insert({
       org_id: b.org_id,
       concept_family_id,
+      ad_name: b.ad_name || null,
       hook_line: b.hook_line,
       hypothesis: b.hypothesis || null,
       content_summary: b.content_summary || null,
@@ -70,9 +71,11 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Optionally schedule the new concept straight into the active cycle as a
-  // deliverable (the "Add to This Week" action). No active cycle => created in
-  // Ideas only, and we say so.
+  // Optionally schedule the new concept straight into the current week as a
+  // deliverable (the "Add to This Week" action). Target the Active cycle if
+  // there is one; otherwise the most recent OPEN (non-Closed) cycle — i.e. the
+  // week you're building even before it's activated. Only a truly empty/closed
+  // slate falls back to Ideas-only.
   let cycle: { id: string; label: string } | null = null;
   if (b.add_to_cycle) {
     const { data: active } = await supabase
@@ -83,11 +86,22 @@ export async function POST(req: Request) {
       .order("starts_on", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (active?.id) {
+    let target = active ?? null;
+    if (!target) {
+      const { data: recentOpen } = await supabase
+        .from("cycles")
+        .select("id, label")
+        .neq("status", "Closed")
+        .order("starts_on", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      target = recentOpen ?? null;
+    }
+    if (target?.id) {
       const { error: dErr } = await supabase
         .from("deliverables")
-        .insert({ cycle_id: active.id, concept_id: data.id });
-      if (!dErr) cycle = { id: active.id, label: active.label };
+        .insert({ cycle_id: target.id, concept_id: data.id });
+      if (!dErr) cycle = { id: target.id, label: target.label };
     }
   }
 

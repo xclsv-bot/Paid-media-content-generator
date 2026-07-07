@@ -1,4 +1,4 @@
--- 0008_references_mime.sql
+-- 0015_references_mime.sql
 -- Restrict the `references` bucket to a known set of content types.
 --
 -- The bucket (created in 0006) had a 500 MB size limit but NO allowed_mime_types,

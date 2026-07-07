@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { isAuthorizedAgent, isAuthorizedCron } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { defaultTargetCents } from "@/lib/metrics/perf";
-import { evaluateWinner } from "@/lib/winners";
+import { refreshAll, type RefreshResult } from "@/lib/loop/refresh";
 
 // Recompute the Winners Cache from current performance: evaluate every creative
 // that has performance, upsert the strong performers, prune the rest. Uses the
@@ -79,6 +78,10 @@ async function recompute(): Promise<{ evaluated: number; cached: number } | { er
 }
 
 function respond(result: Awaited<ReturnType<typeof recompute>>) {
+// Thin auth wrapper over the loop's daily refresh (src/lib/loop/refresh.ts),
+// which rebuilds content_cache, golden_examples, and bad_examples in one pass.
+
+function respond(result: RefreshResult) {
   if ("error" in result) return NextResponse.json(result, { status: 500 });
   return NextResponse.json(result);
 }
@@ -89,7 +92,7 @@ export async function POST(req: Request) {
   if (!isStaff(user) && !isAuthorizedAgent(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  return respond(await recompute());
+  return respond(await refreshAll(createAdminClient()));
 }
 
 // GET /api/winners/refresh — scheduled trigger. Vercel Cron hits this daily and
@@ -98,5 +101,5 @@ export async function GET(req: Request) {
   if (!isAuthorizedCron(req) && !isAuthorizedAgent(req)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  return respond(await recompute());
+  return respond(await refreshAll(createAdminClient()));
 }

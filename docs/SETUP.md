@@ -21,7 +21,10 @@ Fill in from **Supabase → Project Settings → API**:
 Leave the `META_*` values blank for now.
 
 ## 3. Database
-Run the migrations in order against your project (SQL editor, or `supabase db push`):
+Run the migrations in order against your project (SQL editor, or `supabase db push`).
+Migrations apply in **filename order**, so every file must take the next free
+4-digit prefix — never reuse a number (CI rejects duplicate prefixes). If another
+PR claims your number first, renumber yours before merging. The first three:
 1. `supabase/migrations/0001_init.sql` — schema, enums, RLS policies, financials split,
    new-user trigger.
 2. `supabase/migrations/0002_storage.sql` — the private `creative-videos` bucket.

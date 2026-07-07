@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchJson } from "@/lib/http";
+import { createClient } from "@/lib/supabase/client";
+
+const REF_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_REFERENCES_BUCKET || "references";
+type RefClip = { id: string; title: string | null; file_name: string; transcript: string | null; transcript_status: string | null };
 
 type Concept = {
   family: string;
@@ -11,6 +15,7 @@ type Concept = {
   sport: string;
   feature: string;
   hypothesis: string;
+  near_duplicate?: string | null;
   _added?: boolean;
 };
 type Msg = { role: "user" | "ai"; text: string; concepts?: Concept[] };
@@ -35,10 +40,70 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
   const [showSrc, setShowSrc] = useState(false);
   const [srcDraft, setSrcDraft] = useState({ type: "Transcript", name: "", note: "" });
   const [orgId, setOrgId] = useState(organizations[0]?.id ?? "");
+  const refInputRef = useRef<HTMLInputElement>(null);
+  const [refBusy, setRefBusy] = useState(false);
+  const [recentRefs, setRecentRefs] = useState<RefClip[]>([]);
 
   function flash(t: string) {
     setToast(t);
     setTimeout(() => setToast(null), 1800);
+  }
+
+  async function loadRecent() {
+    try {
+      const res = await fetch("/api/ideation-references");
+      if (res.ok) setRecentRefs(((await res.json()).references as RefClip[]) ?? []);
+    } catch {
+      /* non-fatal */
+    }
+  }
+  useEffect(() => {
+    loadRecent();
+  }, []);
+
+  // Attach a reference video → upload → Whisper transcript → add as a source.
+  async function attachReference() {
+    const file = refInputRef.current?.files?.[0];
+    if (!file || refBusy) return;
+    setRefBusy(true);
+    try {
+      flash("Uploading reference…");
+      const signRes = await fetch("/api/ideation-references/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name }),
+      });
+      if (!signRes.ok) throw new Error((await signRes.json()).error ?? "Upload failed");
+      const { path, token } = await signRes.json();
+
+      const supabase = createClient();
+      const { error: upErr } = await supabase.storage.from(REF_BUCKET).uploadToSignedUrl(path, token, file, { contentType: file.type });
+      if (upErr) throw upErr;
+
+      flash("Transcribing…");
+      const regRes = await fetch("/api/ideation-references", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, storagePath: path }),
+      });
+      const data = await regRes.json();
+      if (!regRes.ok) throw new Error(data.error ?? "Transcription failed");
+
+      setSources((s) => [...s, { type: "Transcript", name: file.name, note: data.transcript }]);
+      if (refInputRef.current) refInputRef.current.value = "";
+      loadRecent();
+      flash("Reference transcribed & added ✓");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Reference failed");
+    } finally {
+      setRefBusy(false);
+    }
+  }
+
+  function addRecentRef(r: RefClip) {
+    if (!r.transcript) return;
+    setSources((s) => [...s, { type: "Transcript", name: r.title || r.file_name, note: r.transcript! }]);
+    flash("Reference added ✓");
   }
 
   async function send() {
@@ -101,7 +166,7 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
     );
     setAdded((n) => n + 1);
     if (toCycle) {
-      flash(data.cycle ? `Added to This Week — ${data.cycle.label} ✓` : "Added to Ideas — no active cycle to schedule into");
+      flash(data.cycle ? `Added to This Week — ${data.cycle.label} ✓` : "Added to Ideas — no open cycle yet (create one on This Week)");
     } else {
       flash("Added to Ideas ✓");
     }
@@ -163,6 +228,42 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
             + Add source
           </button>
         )}
+
+        {/* Reference video → transcript */}
+        <div className="mt-4 border-t border-white/10 pt-3">
+          <div className="mb-1.5 font-mono text-[9.5px] uppercase tracking-wide text-white/40">Reference video → transcript</div>
+          <input
+            ref={refInputRef}
+            type="file"
+            accept="video/mp4,video/quicktime,video/webm,audio/*"
+            className="w-full text-[11px] text-white/55 file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-[11px] file:text-white/80"
+          />
+          <button
+            onClick={attachReference}
+            disabled={refBusy}
+            className="mt-2 w-full rounded-[10px] border border-violet-400/30 py-2 text-[12px] font-medium text-violet-200 hover:bg-violet-500/10 disabled:opacity-50"
+          >
+            {refBusy ? "Working…" : "✨ Transcribe & add"}
+          </button>
+
+          {recentRefs.filter((r) => r.transcript).length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 font-mono text-[9.5px] uppercase tracking-wide text-white/40">Recent references</div>
+              <div className="flex flex-col gap-1">
+                {recentRefs.filter((r) => r.transcript).map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => addRecentRef(r)}
+                    title={r.title || r.file_name}
+                    className="truncate rounded px-2 py-1 text-left text-[11.5px] text-white/65 hover:bg-white/10"
+                  >
+                    ↺ {r.title || r.file_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </aside>
 
       {/* chat */}
@@ -179,6 +280,14 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
                       <div className="mb-2 flex items-center gap-2">
                         <span className="font-mono text-[10.5px] uppercase tracking-wide text-white/50">{c.family}</span>
                         <span className="rounded-md bg-violet-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-violet-300">DRAFT CONCEPT</span>
+                        {c.near_duplicate && (
+                          <span
+                            className="rounded-md bg-amber-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-amber-300"
+                            title={`Same family + angle as the golden example "${c.near_duplicate}" — vary it before adding`}
+                          >
+                            ≈ DUPLICATE OF “{c.near_duplicate}”
+                          </span>
+                        )}
                       </div>
                       <h3 className="mb-3 text-[17.5px] font-semibold leading-snug text-gray-100">“{c.hook}”</h3>
                       <div className="mb-3 flex flex-wrap gap-2">

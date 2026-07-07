@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0009_content_cache.sql — Winners Cache
+-- 0016_content_cache.sql — Winners Cache
 -- ============================================================================
 -- A durable, sport-keyed store of "strong performing" creatives (proven content)
 -- so the team can reuse them as templates for the next slate without re-running

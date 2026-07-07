@@ -10,6 +10,7 @@ import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel"
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
 import AdNameTag from "@/components/AdNameTag";
+import DiscussionThread, { type Note } from "@/components/DiscussionThread";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,18 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
       .limit(1)
       .maybeSingle();
     latestReview = (rev as unknown as Review) ?? null;
+  }
+
+  // Internal creator ↔ staff discussion (not loaded for clients).
+  const canDiscuss = staff || user?.role === "creator";
+  let notes: Note[] = [];
+  if (canDiscuss) {
+    const { data: noteRows } = await supabase
+      .from("production_notes")
+      .select("id, author_id, author_name, author_role, body, created_at")
+      .eq("concept_id", id)
+      .order("created_at", { ascending: true });
+    notes = (noteRows as Note[]) ?? [];
   }
 
   const videos = await Promise.all(
@@ -121,6 +134,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
 
           <ScriptPanel conceptId={creative.id} scripts={scriptList} scriptDocUrl={creative.script_doc_url} canEdit={staff} latestReview={latestReview} />
           <ReferencesPanel conceptId={creative.id} references={(refs as unknown as Reference[]) ?? []} canEdit={staff} />
+          {canDiscuss && <DiscussionThread conceptId={creative.id} notes={notes} currentUserId={user!.id} />}
         </div>
 
         {/* RIGHT rail */}
@@ -156,6 +170,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
               conceptId={creative.id}
               initial={{
                 family: family?.name ?? "",
+                ad_name: creative.ad_name ?? "",
                 hook_line: creative.hook_line ?? "",
                 hypothesis: creative.hypothesis ?? "",
                 content_summary: creative.content_summary ?? "",

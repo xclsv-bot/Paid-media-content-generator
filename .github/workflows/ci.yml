@@ -51,6 +51,17 @@ jobs:
       # Stand up Supabase's auth/storage/role objects so the real migrations apply.
       - name: Supabase shim
         run: psql -v ON_ERROR_STOP=1 -f ci/supabase-shim.sql
+      # Migrations apply in filename order everywhere (this job, fresh envs,
+      # prod), so two files sharing a number prefix have no defined order —
+      # take the next free 4-digit prefix; rebase your number if another PR
+      # claims it first.
+      - name: Reject duplicate migration number prefixes
+        run: |
+          dups=$(basename -a supabase/migrations/*.sql | cut -d_ -f1 | sort | uniq -d)
+          if [ -n "$dups" ]; then
+            echo "Duplicate migration number prefix(es): $dups — renumber to the next free prefix." >&2
+            exit 1
+          fi
       # A-2: apply every migration in filename order; any error fails the job.
       - name: Apply migrations in order
         run: |
@@ -61,3 +72,10 @@ jobs:
       # A-1: exercise the RLS policies as each role; a failed assertion fails CI.
       - name: RLS / authorization tests
         run: psql -v ON_ERROR_STOP=1 -f ci/rls_tests.sql
+      # Golden Set trust rules: curation survives refresh; rows are complete.
+      - name: Golden Set tests
+        run: psql -v ON_ERROR_STOP=1 -f ci/golden_tests.sql
+      # Bad-Example gates: only mature + volume-gated + over-target losers
+      # land; every stored rejection carries its compliance reason.
+      - name: Bad-Example tests
+        run: psql -v ON_ERROR_STOP=1 -f ci/bad_tests.sql
