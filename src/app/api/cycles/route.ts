@@ -9,12 +9,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { label, starts_on, ends_on, target_count } = await req.json();
+  const { label, starts_on, ends_on, target_count, org_id } = await req.json();
   if (!label || !starts_on || !ends_on) {
     return NextResponse.json(
       { error: "label, starts_on, ends_on are required" },
       { status: 400 },
     );
+  }
+  if (!org_id) {
+    return NextResponse.json({ error: "org_id is required" }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -25,6 +28,7 @@ export async function POST(req: Request) {
       starts_on,
       ends_on,
       target_count: target_count ?? 15,
+      org_id,
     })
     .select()
     .single();

@@ -7,6 +7,7 @@ import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
 import { findNearDuplicate, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
+import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
@@ -61,23 +62,38 @@ export async function POST(req: Request) {
     );
   }
 
-  const { messages, sources } = (await req.json()) as {
+  const { messages, sources, org_id: orgId } = (await req.json()) as {
     messages: ChatMsg[];
     sources?: Source[];
+    org_id?: string;
   };
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
+  if (!orgId) {
+    return NextResponse.json({ error: "org_id is required" }, { status: 400 });
+  }
 
-  // Ground the model in the existing slate + what's winning.
+  // Ground the model in the existing slate + what's winning — org-scoped: every
+  // read below filters by orgId so one client's scripts/CPT figures/compliance
+  // notes never ground another client's session.
   const supabase = await createClient();
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("display_name, voice_note")
+    .eq("id", orgId)
+    .single();
+  if (!org) return NextResponse.json({ error: "Unknown org_id" }, { status: 400 });
+  const clientDesc = org.voice_note ?? org.display_name;
+
   const target = defaultTargetCents(); // cents; contract Target CPT ($30)
-  const [{ data: families }, { data: proven }, cache, golden, bad] = await Promise.all([
-    supabase.from("concept_families").select("name").order("name"),
-    supabase.from("creatives").select("hook_line, hook_angle, sport").eq("is_proven", true).limit(8),
-    getCachedWinners(supabase, 8),
-    getGoldenExamples(supabase, 6),
-    getBadExamples(supabase, 6),
+  const [{ data: families }, { data: proven }, cache, golden, bad, patterns] = await Promise.all([
+    supabase.from("concept_families").select("name").eq("org_id", orgId).order("name"),
+    supabase.from("creatives").select("hook_line, hook_angle, sport").eq("org_id", orgId).eq("is_proven", true).limit(8),
+    getCachedWinners(supabase, orgId, 8),
+    getGoldenExamples(supabase, orgId, 6),
+    getBadExamples(supabase, orgId, 6),
+    latestCrossClientPatterns(supabase),
   ]);
   const familyList = (families ?? []).map((f: { name: string }) => f.name).join(", ");
   const provenList = (proven ?? [])
@@ -118,13 +134,14 @@ export async function POST(req: Request) {
         ].filter(Boolean).join("\n\n")
       : EMPTY_BAD_NOTE;
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
-  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
+  const learnBlock = learningsPromptBlock(await latestLearnings(supabase, orgId));
+  const patternsBlock = crossClientPatternsPromptBlock(patterns);
 
   const sourceList = (sources ?? [])
     .map((s) => `• [${s.type ?? "ref"}] ${s.name ?? ""}${s.note ? ` — ${s.note}` : ""}`)
     .join("\n");
 
-  const system = `You are a senior paid-social creative strategist for XCLSV Media, working the Outlier sportsbook acquisition account. You help brainstorm short-form video ad concepts (9:16 UGC/demo style) and push the best ones into the concept bank as testable ideas.
+  const system = `You are a senior paid-social creative strategist for XCLSV Media, working the ${clientDesc} account. You help brainstorm short-form video ad concepts (9:16 UGC/demo style) and push the best ones into the concept bank as testable ideas.
 
 Existing concept families: ${familyList || "(none yet)"}.
 
@@ -141,6 +158,8 @@ ${badBlock}
 Use the live signals: lean into the pattern behind the golden examples, diagnose why the losers miss and avoid their traps, never repeat a compliance mistake, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners. Do NOT near-duplicate a golden example (same family + angle + format) — vary the pattern, don't restate it.
 
 ${learnBlock || ""}
+
+${patternsBlock || ""}
 
 When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 

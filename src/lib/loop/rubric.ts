@@ -1,8 +1,11 @@
 // The script rubric — the shared bar the checker scores against and the maker
 // revises toward. Kept in one place so review + revise + (later) learnings agree.
-// Grounded in the Outlier slate: research-as-the-product, proof-of-process, and
-// the compliance rules that live on each family.
-
+//
+// NOTE: the angle_fit guide's underlying thesis ("research is the edge; wins
+// are the outcome of a process") is Outlier-specific product framing, not a
+// generic template. rubricText() only parameterizes the brand-name literal —
+// a client selling a genuinely different product needs a different angle_fit
+// guide, which is a per-client content task, not handled here.
 export const RUBRIC_CRITERIA = [
   {
     key: "hook",
@@ -14,7 +17,7 @@ export const RUBRIC_CRITERIA = [
     key: "angle_fit",
     label: "Angle fit",
     guide:
-      "Delivers on the concept's angle and family thesis (Outlier = research is the edge; wins are the OUTCOME OF A PROCESS, never luck). The research/proof must be shown, not just asserted.",
+      "Delivers on the concept's angle and family thesis ({{CLIENT}} = research is the edge; wins are the OUTCOME OF A PROCESS, never luck). The research/proof must be shown, not just asserted.",
   },
   {
     key: "compliance",
@@ -41,6 +44,8 @@ export type CriterionKey = (typeof RUBRIC_CRITERIA)[number]["key"];
 // Pass bar: every criterion >= 8, and compliance is a hard gate.
 export const PASS_BAR = 8;
 
-export function rubricText(): string {
-  return RUBRIC_CRITERIA.map((c) => `- ${c.label} (${c.key}): ${c.guide}`).join("\n");
+export function rubricText(displayName: string): string {
+  return RUBRIC_CRITERIA
+    .map((c) => `- ${c.label} (${c.key}): ${c.guide.replace("{{CLIENT}}", displayName)}`)
+    .join("\n");
 }

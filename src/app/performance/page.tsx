@@ -5,6 +5,8 @@ import { defaultTargetCents } from "@/lib/metrics/perf";
 import { parseNamingConvention } from "@/lib/client/categorize";
 import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
+import OrgPicker from "@/components/OrgPicker";
+import PromotePatternButton from "@/components/PromotePatternButton";
 
 export const dynamic = "force-dynamic";
 
@@ -54,9 +56,29 @@ function shortName(adName: string): string {
   return body.join(" · ");
 }
 
-export default async function PerformancePage() {
+export default async function PerformancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ org?: string }>;
+}) {
   const user = await getCurrentUser();
+  const staff = isStaff(user);
   const supabase = await createClient();
+  const { org: orgParam } = await searchParams;
+
+  // Learnings/pattern-promotion are per-org. Staff can view any client org
+  // (default: the first non-agency org); a client_viewer only ever has their
+  // own org's context, so the selector below is staff-only.
+  const { data: clientOrgs } = await supabase
+    .from("organizations")
+    .select("id, slug, display_name")
+    .eq("is_agency", false)
+    .order("display_name");
+  const orgId =
+    (staff ? clientOrgs?.find((o) => o.slug === orgParam)?.id : undefined) ??
+    (staff ? clientOrgs?.[0]?.id : undefined) ??
+    user?.org_id ??
+    null;
 
   const [{ data: metricRows }, { data: creativeRows }, learning] = await Promise.all([
     supabase
@@ -66,7 +88,7 @@ export default async function PerformancePage() {
       )
       .order("spend", { ascending: false, nullsFirst: false }),
     supabase.from("creatives").select("id, ad_name, hook_line").not("ad_name", "is", null),
-    latestLearnings(supabase),
+    orgId ? latestLearnings(supabase, orgId) : Promise.resolve(null),
   ]);
 
   const all = (metricRows ?? []) as Metric[];
@@ -118,12 +140,17 @@ export default async function PerformancePage() {
 
   return (
     <main className="mx-auto max-w-6xl p-6 pb-24">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Performance</h1>
-        <p className="text-sm text-white/50">
-          Creative testing — graduation report{latestFlight ? ` · ${latestFlight}` : ""}. CPA target{" "}
-          {targetDollars != null ? usd(targetDollars) : "—"}.
-        </p>
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Performance</h1>
+          <p className="text-sm text-white/50">
+            Creative testing — graduation report{latestFlight ? ` · ${latestFlight}` : ""}. CPA target{" "}
+            {targetDollars != null ? usd(targetDollars) : "—"}.
+          </p>
+        </div>
+        {staff && clientOrgs && clientOrgs.length > 1 && (
+          <OrgPicker organizations={clientOrgs} currentSlug={clientOrgs.find((o) => o.id === orgId)?.slug ?? ""} />
+        )}
       </header>
 
       {metrics.length === 0 ? (
@@ -220,7 +247,16 @@ export default async function PerformancePage() {
           </section>
 
           {/* Agent learnings narrative */}
-          <LearningsPanel learning={learning as Learning | null} canGenerate={isStaff(user)} />
+          {orgId && (
+            <>
+              {staff && (
+                <div className="mb-3 flex justify-end">
+                  <PromotePatternButton orgId={orgId} />
+                </div>
+              )}
+              <LearningsPanel learning={learning as Learning | null} canGenerate={staff} orgId={orgId} />
+            </>
+          )}
         </>
       )}
     </main>

@@ -26,7 +26,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       admin.from("creative_performance").select("creative_id, spend, results, cpt, ctr, first_date"),
       admin
         .from("creatives")
-        .select("id, client_org, sport, format, hook_line, concept_family_id, hook_angle, archetype, cpt_target_cents, concept_families(name)"),
+        .select("id, org_id, sport, format, hook_line, concept_family_id, hook_angle, archetype, cpt_target_cents, concept_families(name)"),
     ]);
   if (perfErr) return { error: perfErr.message };
   if (cErr) return { error: cErr.message };
@@ -65,7 +65,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     ) {
       losers.push({
         creative_id: c.id,
-        client_org: c.client_org,
+        org_id: c.org_id,
         score: (cpt * 100) / target, // rank: how far over target
         reason: `Proven loser: CPT $${cpt.toFixed(2)} is ${((cpt * 100) / target).toFixed(1)}x the $${(target / 100).toFixed(2)} target over ${Math.round(results)} trials (mature — first spend ${p.first_date})`,
         cpt_cents: Math.round(cpt * 100),
@@ -89,7 +89,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     if (!verdict.qualifies) continue;
     qualifiers.push({
       creative_id: c.id,
-      client_org: c.client_org,
+      org_id: c.org_id,
       score: verdict.score ?? 0,
       reason: verdict.reason,
       cpt_cents: Math.round((cpt ?? 0) * 100),
@@ -104,7 +104,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     });
     winners.push({
       creative_id: c.id,
-      client_org: c.client_org,
+      org_id: c.org_id,
       score: verdict.score,
       cpt_cents: cpt == null ? null : Math.round(cpt * 100),
       results: Math.round(results),
@@ -174,7 +174,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     }
     goldenCandidates.push({
       creative_id: q.creative_id,
-      client_org: q.client_org,
+      org_id: q.org_id,
       script: s.body,
       script_version: s.version,
       why_it_won: q.reason,
@@ -203,7 +203,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     }
     badCandidates.push({
       creative_id: q.creative_id,
-      client_org: q.client_org,
+      org_id: q.org_id,
       script: s.body,
       script_version: s.version,
       reason: q.reason,

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Row = {
   creative_id: string;
-  client_org: string;
+  org_id: string;
   score: number;
   cpt_cents: number | null;
   results: number;
@@ -18,6 +18,7 @@ type Row = {
   captured_at: string;
   creatives: { hook_line: string | null; sheet_id: string | null } | { hook_line: string | null; sheet_id: string | null }[] | null;
   concept_families: { name: string } | { name: string }[] | null;
+  organizations: { display_name: string } | { display_name: string }[] | null;
 };
 
 function one<T>(v: T | T[] | null): T | null {
@@ -32,7 +33,7 @@ export default async function WinnersPage() {
   const { data } = await supabase
     .from("content_cache")
     .select(
-      "creative_id, client_org, score, cpt_cents, results, spend_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line, sheet_id), concept_families(name)",
+      "creative_id, org_id, score, cpt_cents, results, spend_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line, sheet_id), concept_families(name), organizations(display_name)",
     )
     .order("score", { ascending: false });
 
@@ -88,9 +89,10 @@ export default async function WinnersPage() {
                 {list.map((r) => {
                   const c = one(r.creatives);
                   const fam = one(r.concept_families);
+                  const org = one(r.organizations);
                   return (
                     <tr key={r.creative_id} className="border-t border-white/5">
-                      {staff && <td className="px-3 py-2 text-white/50">{r.client_org}</td>}
+                      {staff && <td className="px-3 py-2 text-white/50">{org?.display_name ?? "—"}</td>}
                       <td className="px-3 py-2">
                         <Link href={`/creatives/${r.creative_id}`} className="text-sky-300 hover:underline">
                           {c?.hook_line || `#${c?.sheet_id ?? ""}`}

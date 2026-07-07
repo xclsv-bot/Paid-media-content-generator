@@ -412,7 +412,7 @@ loop; (b) **verify which migrations are actually applied on the live project** �
 `0007_single_active_cycle.sql` and `0008_references_mime.sql` (added by Batches B/C) are
 written but, as far as the repo can tell, **not yet applied**. Confirm and apply.
 
-### A-3 — Generalize the tenant model beyond a single client  *(flag: needs owner)*
+### A-3 — Generalize the tenant model beyond a single client  *(done)*
 **Files:** `src/lib/auth.ts` (`AppUser.org` union); the `org_type` enum + `client_org` columns
 in `0001_init.sql`.
 
@@ -422,14 +422,21 @@ but the app **hardcodes exactly two orgs**: `AppUser.org` is the literal union
 code + enum change (and an enum value can't be dropped), not a data operation — cheap to
 generalize before client #2, a migration touching every RLS policy after.
 
-**Definition of done (only if the decision is "yes, multi-client"):**
-- [ ] `org` becomes a first-class `orgs` row referenced by FK from `users`/`creatives`/`cycles`,
-      replacing the `org_type` enum and the TS literal union; `current_org()` / `can_see_creative()`
-      updated; existing XCLSV/Outlier rows migrated.
+**Definition of done:**
+- [x] `org` becomes a first-class `organizations` row referenced by `org_id` FK from
+      `users`/`creatives`/`cycles`/`content_cache`/`concept_families`/`hook_angles`/`learnings`,
+      replacing the `org_type` enum and the TS literal union (`0016_organizations.sql`,
+      `0017_org_scope_shared_tables.sql`); `current_org()`/`is_staff()`/`can_see_creative()`
+      updated; existing XCLSV/Outlier rows migrated; `handle_new_user()` now requires an
+      explicit `org_id` in auth metadata instead of silently defaulting to Outlier.
+- [x] The generation-time contamination surfaces this uncovered (Ideate, the learnings
+      generator, and `concept_families`/`hook_angles`, which turned out to hold real
+      client-identifiable content despite their "global" schema) are now org-filtered —
+      see `docs/MEETING_INSIGHTS_2026-06-25.md` backlog item 3 for the full writeup, and
+      `0018_cross_client_patterns.sql` for the deliberately separate, human-abstracted
+      cross-client sharing surface built alongside it.
 
-**⚠ Needs owner (product/priority):** **is multi-client in scope?** This item cannot start until
-that is decided — if "single client, ever," close it as won't-do and delete the ambiguity.
-Do **not** begin the refactor speculatively.
+Product decision resolved: multi-client is in scope (confirmed when this item was picked up).
 
 ### A-4 — Build or formally defer the client approval / comments flow  *(severity: med)*
 **Files:** `comments` and `approvals` tables + RLS in `0001_init.sql`; no route or component

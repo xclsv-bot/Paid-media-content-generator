@@ -11,6 +11,7 @@ export type Cycle = {
   ends_on: string;
   target_count: number;
   status: string;
+  org_id: string;
 };
 export type Deliverable = {
   id: string;
@@ -27,6 +28,7 @@ export type Deliverable = {
 };
 export type Person = { id: string; name: string | null; role: string };
 export type Available = { id: string; sheet_id: string | null; hook_line: string | null; family: string | null };
+export type Organization = { id: string; slug: string; display_name: string };
 
 const PROD_STATUSES = ["Assigned", "In production", "Submitted", "In revision", "Approved", "Delivered"];
 const STATUS_STYLE: Record<string, string> = {
@@ -44,12 +46,14 @@ export default function WeekBoard({
   deliverables,
   people,
   available,
+  organizations,
 }: {
   cycles: Cycle[];
   selected: Cycle | null;
   deliverables: Deliverable[];
   people: Person[];
   available: Available[];
+  organizations: Organization[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -67,9 +71,13 @@ export default function WeekBoard({
     starts_on: iso(today),
     ends_on: iso(end),
     target_count: 15,
+    org_id: organizations[0]?.id ?? "",
   });
+  const [newCycleErr, setNewCycleErr] = useState<string | null>(null);
 
   async function createCycle() {
+    if (!form.org_id) { setNewCycleErr("A client is required."); return; }
+    setNewCycleErr(null);
     setBusy(true);
     try {
       const res = await fetch("/api/cycles", {
@@ -145,7 +153,7 @@ export default function WeekBoard({
         <button onClick={() => setShowNew(true)} className="mt-3 rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-medium text-black">
           New cycle
         </button>
-        {showNew && <NewCycleForm form={form} setForm={setForm} onCreate={createCycle} busy={busy} sel={sel} />}
+        {showNew && <NewCycleForm form={form} setForm={setForm} onCreate={createCycle} busy={busy} sel={sel} organizations={organizations} err={newCycleErr} />}
       </div>
     );
   }
@@ -194,7 +202,7 @@ export default function WeekBoard({
         </div>
       </div>
 
-      {showNew && <NewCycleForm form={form} setForm={setForm} onCreate={createCycle} busy={busy} sel={sel} />}
+      {showNew && <NewCycleForm form={form} setForm={setForm} onCreate={createCycle} busy={busy} sel={sel} organizations={organizations} err={newCycleErr} />}
 
       {showAdd && (
         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -294,16 +302,25 @@ export default function WeekBoard({
 }
 
 function NewCycleForm({
-  form, setForm, onCreate, busy, sel,
+  form, setForm, onCreate, busy, sel, organizations, err,
 }: {
-  form: { label: string; starts_on: string; ends_on: string; target_count: number };
-  setForm: (f: { label: string; starts_on: string; ends_on: string; target_count: number }) => void;
+  form: { label: string; starts_on: string; ends_on: string; target_count: number; org_id: string };
+  setForm: (f: { label: string; starts_on: string; ends_on: string; target_count: number; org_id: string }) => void;
   onCreate: () => void;
   busy: boolean;
   sel: string;
+  organizations: Organization[];
+  err: string | null;
 }) {
   return (
     <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-white/40">Client</span>
+        <select value={form.org_id} onChange={(e) => setForm({ ...form, org_id: e.target.value })} className={sel}>
+          <option value="">—</option>
+          {organizations.map((o) => <option key={o.id} value={o.id}>{o.display_name}</option>)}
+        </select>
+      </label>
       <label className="flex flex-col gap-1">
         <span className="text-xs text-white/40">Label</span>
         <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} className={`${sel} w-44`} />
@@ -321,6 +338,7 @@ function NewCycleForm({
         <input type="number" value={form.target_count} onChange={(e) => setForm({ ...form, target_count: Number(e.target.value) })} className={`${sel} w-20`} />
       </label>
       <button onClick={onCreate} disabled={busy} className="rounded-lg bg-emerald-500/90 px-4 py-2 font-medium text-black disabled:opacity-50">Create</button>
+      {err && <p className="w-full text-xs text-red-300">{err}</p>}
     </div>
   );
 }

@@ -32,11 +32,13 @@ function one<T>(v: T | T[] | null): T | null {
   return Array.isArray(v) ? v[0] ?? null : v;
 }
 
-// Best-first cached winners, with display labels joined from the source rows.
+// Best-first cached winners FOR ONE ORG, with display labels joined from the
+// source rows. orgId must filter explicitly - service-role callers bypass RLS.
 // Returns { winners: [] } on an empty cache; a query failure is surfaced as
 // `error` so callers can distinguish "empty" from "couldn't read".
 export async function getCachedWinners(
   supabase: SupabaseClient,
+  orgId: string,
   limit: number,
 ): Promise<{ winners: CachedWinner[]; error: string | null }> {
   const { data, error } = await supabase
@@ -44,6 +46,7 @@ export async function getCachedWinners(
     .select(
       "creative_id, score, cpt_cents, results, target_cents, sport, hook_angle, archetype, captured_at, creatives(hook_line), concept_families(name)",
     )
+    .eq("org_id", orgId)
     .order("score", { ascending: false })
     .limit(limit);
   if (error) return { winners: [], error: error.message };

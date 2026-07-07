@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export type ConceptFields = {
+  org_id: string;
   family: string;
   ad_name: string;
   hook_line: string;
@@ -20,8 +21,8 @@ export type ConceptFields = {
 };
 
 const EMPTY: ConceptFields = {
-  family: "", ad_name: "", hook_line: "", hypothesis: "", content_summary: "", hook_angle: "",
-  archetype: "", sport: "", feature_pillar: "", format: "", cta: "",
+  org_id: "", family: "", ad_name: "", hook_line: "", hypothesis: "", content_summary: "",
+  hook_angle: "", archetype: "", sport: "", feature_pillar: "", format: "", cta: "",
   variant_differentiator: "", compliance_note: "",
 };
 
@@ -37,10 +38,12 @@ const miniField = "w-full rounded-lg border border-white/10 bg-black/30 px-2 py-
 export default function ConceptForm({
   initial,
   conceptId,
+  organizations,
   onDone,
 }: {
   initial?: Partial<ConceptFields>;
   conceptId?: string;
+  organizations?: { id: string; slug: string; display_name: string }[];
   onDone?: () => void;
 }) {
   const router = useRouter();
@@ -73,6 +76,7 @@ export default function ConceptForm({
 
   async function submit() {
     if (!f.hook_line.trim()) { setErr("A hook line is required."); return; }
+    if (!conceptId && !f.org_id) { setErr("A client is required."); return; }
     setBusy(true);
     setErr(null);
     try {
@@ -102,6 +106,14 @@ export default function ConceptForm({
 
   return (
     <div className="flex flex-col gap-4">
+      {!conceptId && organizations && (
+        <L label="Client *">
+          <select className={field} value={f.org_id} onChange={set("org_id")}>
+            <option value="">—</option>
+            {organizations.map((o) => <option key={o.id} value={o.id}>{o.display_name}</option>)}
+          </select>
+        </L>
+      )}
       <L label="Hook line *"><input className={field} value={f.hook_line} onChange={set("hook_line")} placeholder="The spoken / on-screen opener" /></L>
 
       <div className="flex flex-col gap-1.5">

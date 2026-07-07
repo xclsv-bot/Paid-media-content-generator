@@ -4,9 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 
 const ARCHETYPES = ["Qualifier", "Broad-appeal", "Mixed"];
 
-// Resolve a family by name (create it if new). Returns the concept_family_id.
+// Resolve a family by name within an org (create it if new). Returns the
+// concept_family_id. concept_families is org-scoped (unique on org_id, name)
+// since one client's family narrative/compliance notes are not safe to share
+// with another's.
 async function resolveFamily(
   supabase: Awaited<ReturnType<typeof createClient>>,
+  orgId: string,
   name: string | null | undefined,
 ): Promise<string | null> {
   const trimmed = (name ?? "").trim();
@@ -14,12 +18,13 @@ async function resolveFamily(
   const { data: existing } = await supabase
     .from("concept_families")
     .select("id")
+    .eq("org_id", orgId)
     .eq("name", trimmed)
     .maybeSingle();
   if (existing?.id) return existing.id;
   const { data: created } = await supabase
     .from("concept_families")
-    .insert({ name: trimmed })
+    .insert({ org_id: orgId, name: trimmed })
     .select("id")
     .single();
   return created?.id ?? null;
@@ -34,14 +39,18 @@ export async function POST(req: Request) {
   if (!b.hook_line || !String(b.hook_line).trim()) {
     return NextResponse.json({ error: "hook_line is required" }, { status: 400 });
   }
+  if (!b.org_id) {
+    return NextResponse.json({ error: "org_id is required" }, { status: 400 });
+  }
   const archetype = ARCHETYPES.includes(b.archetype) ? b.archetype : null;
 
   const supabase = await createClient();
-  const concept_family_id = await resolveFamily(supabase, b.family);
+  const concept_family_id = await resolveFamily(supabase, b.org_id, b.family);
 
   const { data, error } = await supabase
     .from("creatives")
     .insert({
+      org_id: b.org_id,
       concept_family_id,
       ad_name: b.ad_name || null,
       hook_line: b.hook_line,
@@ -72,6 +81,7 @@ export async function POST(req: Request) {
     const { data: active } = await supabase
       .from("cycles")
       .select("id, label")
+      .eq("org_id", b.org_id)
       .eq("status", "Active")
       .order("starts_on", { ascending: false })
       .limit(1)

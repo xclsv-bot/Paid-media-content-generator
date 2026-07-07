@@ -39,12 +39,15 @@ export async function POST(
   const { data: c } = await supabase
     .from("creatives")
     .select(
-      "hook_line, hypothesis, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)",
+      "hook_line, hypothesis, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)",
     )
     .eq("id", conceptId)
     .single();
   if (!c) return NextResponse.json({ error: "Concept not found" }, { status: 404 });
   const fam = Array.isArray(c.concept_families) ? c.concept_families[0] : c.concept_families;
+  const org = Array.isArray(c.organizations) ? c.organizations[0] : c.organizations;
+  const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
+  const clientName = org?.display_name ?? "the client";
 
   // Ground the writer in what's actually winning (proven graduates).
   const { data: winners } = await supabase
@@ -71,7 +74,7 @@ export async function POST(
     .filter(Boolean)
     .join("\n");
 
-  const system = `You are a creative director briefing a short-form video creator for the Outlier sportsbook-research app. Write a CREATIVE BRIEF for the concept below — NOT a script. Give the creator the idea, a starting point, and clear guardrails, then trust them to execute. Suggest, don't dictate: preserve their creative freedom. No timed beats, no shot lists, no word-for-word voiceover.
+  const system = `You are a creative director briefing a short-form video creator for ${clientDesc}. Write a CREATIVE BRIEF for the concept below — NOT a script. Give the creator the idea, a starting point, and clear guardrails, then trust them to execute. Suggest, don't dictate: preserve their creative freedom. No timed beats, no shot lists, no word-for-word voiceover.
 
 Match this shape and voice — a sharp friend putting them on game, talking TO the creator:
 - "The concept:" — 2–4 sentences on what to teach or show and why it works, the rough length (~10–15s, 9:16 vertical), and a LOOSE example opener ("Open with something like '…'"). Leave execution open ("show the one move you'd make — whatever that is for you"). Anchor it in a concrete, in-season example when it helps.
@@ -84,7 +87,7 @@ Lean on what's already working (below) for the angle, but don't copy a specific 
 ${winningText}
 
 This brief should still respect the same quality bar the finished piece is judged on:
-${rubricText()}
+${rubricText(clientName)}
 
 Return the brief in "body" (a few short paragraphs a creator reads in 30 seconds, using the "The concept: / Tone: / Two rules:" shape), and a one-line "notes" for internal staff on the strategic why.`;
 

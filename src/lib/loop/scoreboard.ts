@@ -42,10 +42,15 @@ export type LearningInputs = {
 
 // Assemble everything the analyst agent reasons from: the gated per-dimension
 // scoreboard, plus the top winners/losers with their scripts.
-export async function getLearningInputs(supabase: SupabaseClient): Promise<LearningInputs> {
+//
+// orgId MUST filter both queries explicitly, not just rely on RLS — the cron
+// path (src/app/api/cron/loop/route.ts) calls this with a service-role client
+// that bypasses RLS entirely, so this is the only thing standing between one
+// org's scripts/CPT figures and another's.
+export async function getLearningInputs(supabase: SupabaseClient, orgId: string): Promise<LearningInputs> {
   const [{ data: perfRows }, { data: dimRows }] = await Promise.all([
-    supabase.from("creative_performance").select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated, first_date"),
-    supabase.from("creatives").select("id, hook_line, hook_angle, archetype, sport, feature_pillar, format, cpt_target_cents, concept_families(name)"),
+    supabase.from("creative_performance").select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated, first_date").eq("org_id", orgId),
+    supabase.from("creatives").select("id, hook_line, hook_angle, archetype, sport, feature_pillar, format, cpt_target_cents, concept_families(name)").eq("org_id", orgId),
   ]);
 
   const dims = new Map<string, Dim>();
@@ -72,8 +77,8 @@ export async function getLearningInputs(supabase: SupabaseClient): Promise<Learn
   // /api/winners/refresh computes. Neither list is ever an inline CPT slice
   // over raw performance, which lacks those gates.
   const [cache, bad] = await Promise.all([
-    getCachedWinners(supabase, 5),
-    getBadExamples(supabase, 5),
+    getCachedWinners(supabase, orgId, 5),
+    getBadExamples(supabase, orgId, 5),
   ]);
   const losers = bad.examples.filter((b) => b.kind === "proven_loser");
 
