@@ -6,12 +6,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // staff curation (PATCH /api/golden/:id). See 0018_golden_examples.sql for
 // the completeness constraints and the pin/remove state machine.
 
-// How many auto rows the refresh keeps (best score first). Pinned rows are
-// curator state and don't count against this.
-export function goldenMax(): number {
-  const n = Number(process.env.GOLDEN_MAX);
-  return Number.isFinite(n) && n > 0 ? Math.round(n) : 10;
-}
+// The cap lives with the rest of the loop thresholds in src/lib/loop/config.ts;
+// re-exported here so call sites keep one import. Pinned rows are curator
+// state and don't count against it.
+import { goldenMax } from "@/lib/loop/config";
+export { goldenMax };
 
 // What the refresh route collects per qualifying winner before joining scripts.
 export type GoldenQualifier = {
@@ -52,6 +51,33 @@ export type GoldenExample = {
   target_cents: number;
   captured_at: string;
 };
+
+// Diversity guard: does a proposed concept near-duplicate an existing golden
+// example? Match = same family + hook angle + format (trimmed, case-folded;
+// a null/empty value never matches). Returns the matching example's hook line
+// so the UI can say WHAT it duplicates — the concept is flagged, not dropped.
+export function findNearDuplicate(
+  concept: { family?: string | null; angle?: string | null; format?: string | null },
+  examples: GoldenExample[],
+): string | null {
+  const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+  const cf = norm(concept.family);
+  const ca = norm(concept.angle);
+  const cfmt = norm(concept.format);
+  if (!cf || !ca) return null;
+  for (const e of examples) {
+    const d = e.dimensions ?? {};
+    if (
+      norm(d.family) === cf &&
+      norm(d.hook_angle) === ca &&
+      // format matches when either side doesn't specify one
+      (!cfmt || !norm(d.format) || norm(d.format) === cfmt)
+    ) {
+      return d.hook_line ?? e.creative_id;
+    }
+  }
+  return null;
+}
 
 // The consumable golden set, best-first, pinned included, tombstones excluded.
 // Every prompt/UI consumer must read through here (or replicate the

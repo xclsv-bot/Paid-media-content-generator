@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText, PASS_BAR } from "@/lib/loop/rubric";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
+import { getGoldenExamples } from "@/lib/loop/golden";
+import { getBadExamples } from "@/lib/loop/bad";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -78,8 +80,27 @@ ${rubricText()}
 
 Compliance is a hard gate: if the script risks any compliance rule, score compliance below ${PASS_BAR} and list the exact risk in compliance_flags. weaknesses and suggestions must be specific and actionable (quote the line, say the fix) — no generic praise.`;
 
-  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
-  const systemFull = learnBlock ? `${system}\n\n${learnBlock}` : system;
+  // Ground the checker in the example stores: what passing looks like (golden
+  // why-it-wons) and what has already been rejected (compliance reasons).
+  // Kept compact — the rubric stays the gate; these are calibration, not rules.
+  const [learn, golden, bad] = await Promise.all([
+    latestLearnings(supabase),
+    getGoldenExamples(supabase, 2),
+    getBadExamples(supabase, 3),
+  ]);
+  const rejectionReasons = bad.examples
+    .filter((b) => b.kind === "review_rejection")
+    .map((b) => `- ${b.reason}`);
+  const exampleBlock = [
+    golden.examples.length
+      ? `WHAT PASSING LOOKS LIKE (from the golden set):\n${golden.examples.map((g) => `- "${g.dimensions?.hook_line ?? "?"}": ${g.why_it_won}`).join("\n")}`
+      : "",
+    rejectionReasons.length
+      ? `PREVIOUSLY REJECTED FOR (do not let these recur):\n${rejectionReasons.join("\n")}`
+      : "",
+  ].filter(Boolean).join("\n\n");
+  const learnBlock = learningsPromptBlock(learn);
+  const systemFull = [system, learnBlock, exampleBlock].filter(Boolean).join("\n\n");
 
   let client: Anthropic;
   try {

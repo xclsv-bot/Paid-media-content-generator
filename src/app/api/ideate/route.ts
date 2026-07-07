@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
+import { findNearDuplicate, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
+import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
@@ -70,10 +72,12 @@ export async function POST(req: Request) {
   // Ground the model in the existing slate + what's winning.
   const supabase = await createClient();
   const target = defaultTargetCents(); // cents; contract Target CPT ($30)
-  const [{ data: families }, { data: proven }, cache] = await Promise.all([
+  const [{ data: families }, { data: proven }, cache, golden, bad] = await Promise.all([
     supabase.from("concept_families").select("name").order("name"),
     supabase.from("creatives").select("hook_line, hook_angle, sport").eq("is_proven", true).limit(8),
     getCachedWinners(supabase, 8),
+    getGoldenExamples(supabase, 6),
+    getBadExamples(supabase, 6),
   ]);
   const familyList = (families ?? []).map((f: { name: string }) => f.name).join(", ");
   const provenList = (proven ?? [])
@@ -81,8 +85,9 @@ export async function POST(req: Request) {
       `• "${p.hook_line}" — ${p.hook_angle ?? "?"} / ${p.sport ?? "?"}`)
     .join("\n");
 
-  // Live performance signals come from the Winners Cache — the volume-gated
-  // set computed by /api/winners/refresh — never an inline Hit filter here.
+  // Live performance signals come from the loop's stores — the winners cache,
+  // the golden set, and the bad-example store, all gated at write time by
+  // /api/winners/refresh — never an inline Hit/CPT filter here.
   let perfSignals: string;
   if (cache.error) {
     perfSignals = `(winners cache unavailable: ${cache.error})`;
@@ -91,6 +96,27 @@ export async function POST(req: Request) {
   } else {
     perfSignals = `TOP PERFORMERS (proven winners from the cache — Hit + volume-gated):\n${cache.winners.map(winnerLine).join("\n")}`;
   }
+
+  // Golden examples: the winning scripts themselves — the patterns to build on.
+  const goldenLine = (g: GoldenExample) =>
+    `• "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`;
+  const goldenBlock = golden.error
+    ? `(golden set unavailable: ${golden.error})`
+    : golden.examples.length
+      ? `GOLDEN EXAMPLES (proven winning scripts — study the pattern, don't restate them):\n${golden.examples.map(goldenLine).join("\n")}`
+      : "(golden set is empty — no winner has a captured script yet; the daily refresh populates it)";
+
+  // Bad examples: proven losers + compliance rejections — the patterns to avoid.
+  const losers = bad.examples.filter((b) => b.kind === "proven_loser");
+  const rejections = bad.examples.filter((b) => b.kind === "review_rejection");
+  const badBlock = bad.error
+    ? `(bad-example store unavailable: ${bad.error})`
+    : bad.examples.length
+      ? [
+          losers.length ? `PROVEN LOSERS (mature, volume-gated, CPT well over target):\n${losers.map(badExampleLine).join("\n")}` : "",
+          rejections.length ? `COMPLIANCE REJECTIONS (scripts the reviewer failed — never repeat these mistakes):\n${rejections.map(badExampleLine).join("\n")}` : "",
+        ].filter(Boolean).join("\n\n")
+      : EMPTY_BAD_NOTE;
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
   const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
 
@@ -102,13 +128,17 @@ export async function POST(req: Request) {
 
 Existing concept families: ${familyList || "(none yet)"}.
 
-Recently proven winners:
+Slate-proven concepts (manual flag from the original slate — editorial, not performance-derived):
 ${provenList || "(none yet)"}
 
 Live performance signals (Target CPT ${targetDollars}; lower CPT is better):
 ${perfSignals}
 
-Use the live signals: lean into the pattern behind the proven winners, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners — do not just restate a winning ad.
+${goldenBlock}
+
+${badBlock}
+
+Use the live signals: lean into the pattern behind the golden examples, diagnose why the losers miss and avoid their traps, never repeat a compliance mistake, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners. Do NOT near-duplicate a golden example (same family + angle + format) — vary the pattern, don't restate it.
 
 ${learnBlock || ""}
 
@@ -144,7 +174,14 @@ When the user shares context (call transcripts, references, performance signals)
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock && "text" in textBlock ? textBlock.text : "{}";
     const parsed = JSON.parse(raw);
-    return NextResponse.json({ reply: parsed.reply ?? "", concepts: parsed.concepts ?? [] });
+    // Diversity guard: flag (never drop) concepts that near-duplicate a golden
+    // example, so staff see the overlap and decide.
+    type Concept = { family?: string | null; angle?: string | null; format?: string | null };
+    const concepts = ((parsed.concepts ?? []) as Concept[]).map((con) => ({
+      ...con,
+      near_duplicate: findNearDuplicate(con, golden.examples),
+    }));
+    return NextResponse.json({ reply: parsed.reply ?? "", concepts });
   } catch (e) {
     // Missing/expired/invalid credentials → surface as "not configured".
     if (e instanceof Anthropic.AuthenticationError) {

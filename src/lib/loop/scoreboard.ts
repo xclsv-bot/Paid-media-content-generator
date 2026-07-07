@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { defaultTargetCents, rollupBy, type CreativePerf } from "@/lib/metrics/perf";
 import { isMature, minTrials, rankScore } from "@/lib/loop/attribution";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine, type CachedWinner } from "@/lib/loop/winners-cache";
+import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples, type BadExample } from "@/lib/loop/bad";
 
 type Dim = {
   id: string;
@@ -66,52 +67,51 @@ export async function getLearningInputs(supabase: SupabaseClient): Promise<Learn
     return `${dd.label}:\n${lines.join("\n")}`;
   }).join("\n\n");
 
-  // Winners come from the Winners Cache — the volume-gated set that only
-  // /api/winners/refresh computes — never an inline best-CPT slice, which
-  // could crown a small-sample fluke. Losers stay derived from the matured,
-  // trial-gated cohorts (worst CPT first), minus anything the cache calls a
-  // winner so the two lists can't contradict each other.
-  const cache = await getCachedWinners(supabase, 5);
-  const winnerIds = new Set(cache.winners.map((w) => w.creative_id));
-  const losers = matured
-    .filter((p) => p.cpt != null && !winnerIds.has(p.creative_id))
-    .sort((a, b) => Number(b.cpt) - Number(a.cpt))
-    .slice(0, 5);
+  // Winners come from the Winners Cache; losers come from the Bad-Example
+  // store — the triple-gated (mature + volume + over-target) set that only
+  // /api/winners/refresh computes. Neither list is ever an inline CPT slice
+  // over raw performance, which lacks those gates.
+  const [cache, bad] = await Promise.all([
+    getCachedWinners(supabase, 5),
+    getBadExamples(supabase, 5),
+  ]);
+  const losers = bad.examples.filter((b) => b.kind === "proven_loser");
 
-  const ids = [...new Set([...cache.winners.map((w) => w.creative_id), ...losers.map((p) => p.creative_id)])];
+  const winnerIds = cache.winners.map((w) => w.creative_id);
   const scriptByConcept = new Map<string, string>();
-  if (ids.length) {
+  if (winnerIds.length) {
     const { data: scripts } = await supabase
       .from("scripts")
       .select("concept_id, body, version")
-      .in("concept_id", ids)
+      .in("concept_id", winnerIds)
       .order("version", { ascending: false });
     for (const s of (scripts ?? []) as { concept_id: string; body: string }[]) {
       if (!scriptByConcept.has(s.concept_id)) scriptByConcept.set(s.concept_id, s.body);
     }
   }
-  const scriptSuffix = (id: string) => {
-    const scr = scriptByConcept.get(id);
-    return scr ? `\n  Script: ${scr.slice(0, 400)}` : "";
+  const fmtWinner = (w: CachedWinner) => {
+    const scr = scriptByConcept.get(w.creative_id);
+    return winnerLine(w) + (scr ? `\n  Script: ${scr.slice(0, 400)}` : "");
   };
-  const fmtWinner = (w: CachedWinner) => winnerLine(w) + scriptSuffix(w.creative_id);
-  const fmtLoser = (p: PerfRow) => {
-    const c = dims.get(p.creative_id);
-    return `• "${c?.hook_line ?? "?"}" — ${famName(c) ?? "?"} / ${c?.hook_angle ?? "?"} / ${c?.archetype ?? "?"} / ${c?.sport ?? "?"} · CPT $${Number(p.cpt).toFixed(2)} (${p.results} trials)` +
-      scriptSuffix(p.creative_id);
-  };
+  // Bad-example rows snapshot their own losing script — no join needed.
+  const fmtLoser = (b: BadExample) => badExampleLine(b) + `\n  Script: ${b.script.slice(0, 400)}`;
 
   const winnersText = cache.error
     ? `(winners cache unavailable: ${cache.error})`
     : cache.winners.length
       ? cache.winners.map(fmtWinner).join("\n")
       : EMPTY_CACHE_NOTE;
+  const losersText = bad.error
+    ? `(bad-example store unavailable: ${bad.error})`
+    : losers.length
+      ? losers.map(fmtLoser).join("\n")
+      : EMPTY_BAD_NOTE;
 
   return {
     maturedCount: matured.length,
     targetDollars: fallback != null ? `$${(fallback / 100).toFixed(2)}` : "target",
     scoreboardText: scoreboardText || "(no matured cohorts)",
     winnersText,
-    losersText: losers.map(fmtLoser).join("\n") || "(none)",
+    losersText,
   };
 }

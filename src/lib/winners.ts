@@ -8,21 +8,10 @@
 // CPT purely by small-sample luck. So a strong performer must ALSO clear a
 // minimum-volume bar before we trust its CPT and cache it.
 
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.round(n) : fallback;
-}
-
-// Tunable gates (env overrides; defaults are sportsbook-sane). Exposed so the
-// route and tests share one source of truth.
-export function minResults(): number {
-  return envInt("WINNER_MIN_RESULTS", 10); // trials needed to trust the CPT
-}
-export function minSpendCents(): number {
-  return envInt("WINNER_MIN_SPEND_CENTS", 5000); // $50 minimum spend
-}
+// Tunable gates live with the rest of the loop thresholds in
+// src/lib/loop/config.ts; re-exported here so call sites keep one import.
+import { minResults, minSpendCents } from "@/lib/loop/config";
+export { minResults, minSpendCents };
 
 export type PerfInput = {
   creativeId: string;
