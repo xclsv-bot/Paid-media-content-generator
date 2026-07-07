@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { defaultTargetCents, rollupBy, type CreativePerf } from "@/lib/metrics/perf";
 import { isMature, minTrials, rankScore } from "@/lib/loop/attribution";
+import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine, type CachedWinner } from "@/lib/loop/winners-cache";
 
 type Dim = {
   id: string;
@@ -65,11 +66,19 @@ export async function getLearningInputs(supabase: SupabaseClient): Promise<Learn
     return `${dd.label}:\n${lines.join("\n")}`;
   }).join("\n\n");
 
-  // Winners/losers with their latest script.
-  const withCpt = matured.filter((p) => p.cpt != null).sort((a, b) => Number(a.cpt) - Number(b.cpt));
-  const winners = withCpt.slice(0, 5);
-  const losers = withCpt.slice(-5).reverse();
-  const ids = [...new Set([...winners, ...losers].map((p) => p.creative_id))];
+  // Winners come from the Winners Cache — the volume-gated set that only
+  // /api/winners/refresh computes — never an inline best-CPT slice, which
+  // could crown a small-sample fluke. Losers stay derived from the matured,
+  // trial-gated cohorts (worst CPT first), minus anything the cache calls a
+  // winner so the two lists can't contradict each other.
+  const cache = await getCachedWinners(supabase, 5);
+  const winnerIds = new Set(cache.winners.map((w) => w.creative_id));
+  const losers = matured
+    .filter((p) => p.cpt != null && !winnerIds.has(p.creative_id))
+    .sort((a, b) => Number(b.cpt) - Number(a.cpt))
+    .slice(0, 5);
+
+  const ids = [...new Set([...cache.winners.map((w) => w.creative_id), ...losers.map((p) => p.creative_id)])];
   const scriptByConcept = new Map<string, string>();
   if (ids.length) {
     const { data: scripts } = await supabase
@@ -81,18 +90,28 @@ export async function getLearningInputs(supabase: SupabaseClient): Promise<Learn
       if (!scriptByConcept.has(s.concept_id)) scriptByConcept.set(s.concept_id, s.body);
     }
   }
-  const fmt = (p: PerfRow) => {
-    const c = dims.get(p.creative_id);
-    const scr = scriptByConcept.get(p.creative_id);
-    return `• "${c?.hook_line ?? "?"}" — ${famName(c) ?? "?"} / ${c?.hook_angle ?? "?"} / ${c?.archetype ?? "?"} / ${c?.sport ?? "?"} · CPT $${Number(p.cpt).toFixed(2)} (${p.results} trials)` +
-      (scr ? `\n  Script: ${scr.slice(0, 400)}` : "");
+  const scriptSuffix = (id: string) => {
+    const scr = scriptByConcept.get(id);
+    return scr ? `\n  Script: ${scr.slice(0, 400)}` : "";
   };
+  const fmtWinner = (w: CachedWinner) => winnerLine(w) + scriptSuffix(w.creative_id);
+  const fmtLoser = (p: PerfRow) => {
+    const c = dims.get(p.creative_id);
+    return `• "${c?.hook_line ?? "?"}" — ${famName(c) ?? "?"} / ${c?.hook_angle ?? "?"} / ${c?.archetype ?? "?"} / ${c?.sport ?? "?"} · CPT $${Number(p.cpt).toFixed(2)} (${p.results} trials)` +
+      scriptSuffix(p.creative_id);
+  };
+
+  const winnersText = cache.error
+    ? `(winners cache unavailable: ${cache.error})`
+    : cache.winners.length
+      ? cache.winners.map(fmtWinner).join("\n")
+      : EMPTY_CACHE_NOTE;
 
   return {
     maturedCount: matured.length,
     targetDollars: fallback != null ? `$${(fallback / 100).toFixed(2)}` : "target",
     scoreboardText: scoreboardText || "(no matured cohorts)",
-    winnersText: winners.map(fmt).join("\n") || "(none)",
-    losersText: losers.map(fmt).join("\n") || "(none)",
+    winnersText,
+    losersText: losers.map(fmtLoser).join("\n") || "(none)",
   };
 }
