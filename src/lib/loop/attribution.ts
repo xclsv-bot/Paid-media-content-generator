@@ -1,16 +1,12 @@
 import { type Rollup } from "@/lib/metrics/perf";
+import { MATURE_DAYS, minTrials, provenHitRate } from "@/lib/loop/config";
 
-// A cohort is judged once its 21-day measurement window has closed (the contract
-// Performance Standard §4.3). We use the first day a creative recorded spend as
-// its "set live" date (see docs/PHASE3_ATTRIBUTION.md).
-export const MATURE_DAYS = 21;
-
-// A creative only counts toward learnings once enough trials sit behind it, so a
-// lucky 2-conversion result doesn't masquerade as a signal. Configurable.
-export function minTrials(): number {
-  const n = Number(process.env.LOOP_MIN_TRIALS);
-  return Number.isFinite(n) && n > 0 ? n : 20;
-}
+// Thresholds live with the rest of the loop config (src/lib/loop/config.ts);
+// re-exported here so existing call sites keep one import. A cohort is judged
+// once its 21-day measurement window has closed (Performance Standard §4.3);
+// we use the first day a creative recorded spend as its "set live" date
+// (see docs/PHASE3_ATTRIBUTION.md).
+export { MATURE_DAYS, minTrials, provenHitRate };
 
 // Mature = first spend was at least MATURE_DAYS ago.
 export function isMature(firstDate: string | null, now: Date): boolean {
@@ -22,12 +18,6 @@ export function isMature(firstDate: string | null, now: Date): boolean {
 
 export function hitRate(r: Rollup): number | null {
   return r.judged > 0 ? r.hits / r.judged : null;
-}
-
-// Hit-rate a family must clear (with enough judged creatives) to count as proven.
-export function provenHitRate(): number {
-  const n = Number(process.env.LOOP_PROVEN_HIT_RATE);
-  return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.5;
 }
 
 export type SlotStatus = "Proven" | "Validating" | "Untested";

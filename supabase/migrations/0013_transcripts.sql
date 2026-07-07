@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0012_transcripts.sql — store a speech-to-text transcript per uploaded video.
+-- 0013_transcripts.sql — store a speech-to-text transcript per uploaded video.
 -- ============================================================================
 -- On upload we transcribe the clip (OpenAI Whisper) so we capture what was
 -- actually said — the real hook/delivery — for later hook-level analysis

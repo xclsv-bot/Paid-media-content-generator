@@ -135,6 +135,26 @@ Do **not** schedule an autonomous agent before a manual run is reliable.
 Performance Credit is at stake, so we build state and prove the gates before they
 count.
 
+## Loop thresholds (all env-overridable; single source: `src/lib/loop/config.ts`)
+
+| env | default | gate it controls |
+|---|---|---|
+| `WINNER_MIN_RESULTS` | 10 | trials before a Hit's CPT is trusted → Winners Cache |
+| `WINNER_MIN_SPEND_CENTS` | 5000 | spend before a Hit's CPT is trusted → Winners Cache |
+| `LOOP_MIN_TRIALS` | 20 | trials before a cohort counts in the learnings scoreboard |
+| `LOOP_PROVEN_HIT_RATE` | 0.5 | hit-rate for a family slot to count as Proven |
+| `GOLDEN_MAX` | 10 | auto golden examples kept per refresh (pins excluded) |
+| `BAD_MAX` | 10 | proven losers kept per refresh (worst first) |
+| `LOSER_MATURE_DAYS` | 21 | maturity window before a proven-loser verdict |
+| `LOSER_MIN_RESULTS` | =`LOOP_MIN_TRIALS` | trials before a proven-loser verdict |
+| `LOSER_CPT_MULTIPLIER` | 1.5 | CPT must be ≥ this × target to be a proven loser |
+
+> **Deliberate asymmetry (flagged, unresolved):** winners are volume-gated but
+> **not** maturity-gated — a high-volume creative can enter the Winners Cache
+> (and thus the Golden Set) before its 21-day window closes, while a loser
+> verdict always waits for maturity. Rationale: exploit early, condemn
+> carefully. Revisit if an early "winner" later misses its matured verdict.
+
 ## Open decisions
 - Exact **rubric** contents (hook rules, per-family compliance blockers, structure).
 - **Portfolio K** and how much weekly volume goes explore vs exploit (default

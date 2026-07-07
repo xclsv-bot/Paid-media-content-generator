@@ -15,6 +15,7 @@ type Concept = {
   sport: string;
   feature: string;
   hypothesis: string;
+  near_duplicate?: string | null;
   _added?: boolean;
 };
 type Msg = { role: "user" | "ai"; text: string; concepts?: Concept[] };
@@ -262,6 +263,14 @@ export default function IdeateWorkspace() {
                       <div className="mb-2 flex items-center gap-2">
                         <span className="font-mono text-[10.5px] uppercase tracking-wide text-white/50">{c.family}</span>
                         <span className="rounded-md bg-violet-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-violet-300">DRAFT CONCEPT</span>
+                        {c.near_duplicate && (
+                          <span
+                            className="rounded-md bg-amber-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-amber-300"
+                            title={`Same family + angle as the golden example "${c.near_duplicate}" — vary it before adding`}
+                          >
+                            ≈ DUPLICATE OF “{c.near_duplicate}”
+                          </span>
+                        )}
                       </div>
                       <h3 className="mb-3 text-[17.5px] font-semibold leading-snug text-gray-100">“{c.hook}”</h3>
                       <div className="mb-3 flex flex-wrap gap-2">

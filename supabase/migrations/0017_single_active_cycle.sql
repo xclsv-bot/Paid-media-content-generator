@@ -1,4 +1,4 @@
--- 0007_single_active_cycle.sql
+-- 0017_single_active_cycle.sql
 -- Enforce "at most one Active cycle PER CLIENT ORG" at the database level.
 --
 -- PATCH /api/cycles/:id activates a cycle by demoting any other Active cycle in

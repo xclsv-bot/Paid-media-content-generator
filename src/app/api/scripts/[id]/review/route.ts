@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText, PASS_BAR } from "@/lib/loop/rubric";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
+import { getGoldenExamples } from "@/lib/loop/golden";
+import { getBadExamples } from "@/lib/loop/bad";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -52,7 +54,7 @@ export async function POST(
 
   const { data: c } = await supabase
     .from("creatives")
-    .select("hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
+    .select("client_org, hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note)")
     .eq("id", script.concept_id)
     .single();
   const fam = Array.isArray(c?.concept_families) ? c?.concept_families[0] : c?.concept_families;
@@ -78,8 +80,27 @@ ${rubricText()}
 
 Compliance is a hard gate: if the script risks any compliance rule, score compliance below ${PASS_BAR} and list the exact risk in compliance_flags. weaknesses and suggestions must be specific and actionable (quote the line, say the fix) — no generic praise.`;
 
-  const learnBlock = learningsPromptBlock(await latestLearnings(supabase));
-  const systemFull = learnBlock ? `${system}\n\n${learnBlock}` : system;
+  // Ground the checker in the example stores: what passing looks like (golden
+  // why-it-wons) and what has already been rejected (compliance reasons).
+  // Kept compact — the rubric stays the gate; these are calibration, not rules.
+  const [learn, golden, bad] = await Promise.all([
+    latestLearnings(supabase),
+    getGoldenExamples(supabase, 2),
+    getBadExamples(supabase, 3),
+  ]);
+  const rejectionReasons = bad.examples
+    .filter((b) => b.kind === "review_rejection")
+    .map((b) => `- ${b.reason}`);
+  const exampleBlock = [
+    golden.examples.length
+      ? `WHAT PASSING LOOKS LIKE (from the golden set):\n${golden.examples.map((g) => `- "${g.dimensions?.hook_line ?? "?"}": ${g.why_it_won}`).join("\n")}`
+      : "",
+    rejectionReasons.length
+      ? `PREVIOUSLY REJECTED FOR (do not let these recur):\n${rejectionReasons.join("\n")}`
+      : "",
+  ].filter(Boolean).join("\n\n");
+  const learnBlock = learningsPromptBlock(learn);
+  const systemFull = [system, learnBlock, exampleBlock].filter(Boolean).join("\n\n");
 
   let client: Anthropic;
   try {
@@ -126,7 +147,34 @@ Compliance is a hard gate: if the script risks any compliance rule, score compli
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ review: saved });
+
+    // A compliance rejection is a free pre-spend bad example — but only when
+    // it carries its reason (the flags). A reasonless rejection is never
+    // persisted: the route doesn't attempt it, and bad_examples' non-empty
+    // reason CHECK would refuse it anyway. Failures are reported, not
+    // swallowed — the review itself is already saved either way.
+    let rejection: { captured: boolean; error?: string } | undefined;
+    if (verdict === "revise" && flags.length > 0) {
+      const { error: beErr } = await supabase.from("bad_examples").insert({
+        kind: "review_rejection",
+        creative_id: script.concept_id,
+        client_org: c?.client_org,
+        script: script.body,
+        script_version: script.version,
+        reason: `Compliance: ${flags.join("; ")}`,
+        dimensions: {
+          family: fam?.name ?? null,
+          hook_line: c?.hook_line ?? null,
+          hook_angle: c?.hook_angle ?? null,
+          archetype: c?.archetype ?? null,
+          sport: c?.sport ?? null,
+          format: c?.format ?? null,
+        },
+        review_id: saved.id,
+      });
+      rejection = beErr ? { captured: false, error: beErr.message } : { captured: true };
+    }
+    return NextResponse.json({ review: saved, rejection });
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) {
       return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
