@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0013_ideation_references.sql — reference clips for Ideate.
+-- 0014_ideation_references.sql — reference clips for Ideate.
 -- ============================================================================
 -- A staff-only library of reference videos dropped into the Ideate workspace.
 -- Each is transcribed (Whisper) so the agent can ideate off what was actually
