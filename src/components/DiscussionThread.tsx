@@ -31,6 +31,7 @@ export default function DiscussionThread({
   const router = useRouter();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function post() {
     if (!text.trim()) return;
@@ -43,7 +44,11 @@ export default function DiscussionThread({
       });
       if (res.ok) {
         setText("");
+        setError(null);
         router.refresh();
+      } else {
+        const j = await res.json().catch(() => null);
+        setError(j?.error ?? "Couldn't send — try again.");
       }
     } finally {
       setBusy(false);
@@ -78,6 +83,7 @@ export default function DiscussionThread({
         })}
       </ul>
 
+      {error && <p className="mb-2 text-sm text-red-300">{error}</p>}
       <div className="flex gap-2">
         <input
           value={text}

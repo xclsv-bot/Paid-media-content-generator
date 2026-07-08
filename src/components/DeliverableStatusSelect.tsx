@@ -27,15 +27,18 @@ export default function DeliverableStatusSelect({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   async function change(status: string) {
     setBusy(true);
+    setFailed(false);
     try {
-      await fetch(`/api/deliverables/${id}`, {
+      const res = await fetch(`/api/deliverables/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ production_status: status }),
       });
+      if (!res.ok) setFailed(true);
       router.refresh();
     } finally {
       setBusy(false);
@@ -43,6 +46,7 @@ export default function DeliverableStatusSelect({
   }
 
   return (
+    <span className="inline-flex items-center gap-1.5">
     <select
       value={value}
       disabled={busy}
@@ -57,5 +61,7 @@ export default function DeliverableStatusSelect({
         <option value={value} disabled>{value}</option>
       )}
     </select>
+      {failed && <span className="text-xs text-red-300" role="alert">save failed</span>}
+    </span>
   );
 }

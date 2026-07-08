@@ -15,13 +15,16 @@ export default function BriefActions({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dupErr, setDupErr] = useState<string | null>(null);
 
   async function duplicate() {
     setBusy(true);
+    setDupErr(null);
     try {
       const res = await fetch(`/api/concepts/${conceptId}/duplicate`, { method: "POST" });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (res.ok) router.push(`/creatives/${json.id}`);
+      else setDupErr(json?.error ?? "Couldn't duplicate — try again.");
     } finally {
       setBusy(false);
     }
@@ -38,6 +41,7 @@ export default function BriefActions({
           className="w-full rounded-[10px] border border-white/[0.14] py-2.5 text-[13px] text-white/70 hover:bg-white/10 disabled:opacity-50">
           Duplicate as new test
         </button>
+        {dupErr && <p className="text-xs text-red-300">{dupErr}</p>}
       </div>
 
       {editing && (

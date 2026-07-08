@@ -57,6 +57,8 @@ export default function WeekBoard({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -85,13 +87,33 @@ export default function WeekBoard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Couldn't create the cycle");
       setShowNew(false);
       router.push(`/this-week?cycle=${json.cycle.id}`);
       router.refresh();
+    } catch (e) {
+      setNewCycleErr(e instanceof Error ? e.message : "Couldn't create the cycle");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Run a mutation, surface its failure in the shared error line (a silent
+  // failure here reads as a successful save).
+  async function act(label: string, fn: () => Promise<Response>) {
+    setActionErr(null);
+    try {
+      const res = await fn();
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error ?? `${label} failed`);
+      }
+      router.refresh();
+      return true;
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : `${label} failed`);
+      return false;
     }
   }
 
@@ -99,43 +121,48 @@ export default function WeekBoard({
     if (!selected) return;
     setBusy(true);
     try {
-      await fetch(`/api/cycles/${selected.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      router.refresh();
+      await act("Updating the cycle", () =>
+        fetch(`/api/cycles/${selected.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }),
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function patchDeliverable(id: string, patch: Record<string, unknown>) {
-    await fetch(`/api/deliverables/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    router.refresh();
+    await act("Saving", () =>
+      fetch(`/api/deliverables/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }),
+    );
   }
 
   async function removeDeliverable(id: string) {
-    await fetch(`/api/deliverables/${id}`, { method: "DELETE" });
-    router.refresh();
+    setConfirmRemove(null);
+    await act("Removing", () => fetch(`/api/deliverables/${id}`, { method: "DELETE" }));
   }
 
   async function addPicked() {
     if (!selected || picked.size === 0) return;
     setBusy(true);
     try {
-      await fetch(`/api/cycles/${selected.id}/deliverables`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conceptIds: [...picked] }),
-      });
-      setPicked(new Set());
-      setShowAdd(false);
-      router.refresh();
+      const ok = await act("Adding concepts", () =>
+        fetch(`/api/cycles/${selected.id}/deliverables`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conceptIds: [...picked] }),
+        }),
+      );
+      if (ok) {
+        setPicked(new Set());
+        setShowAdd(false);
+      }
     } finally {
       setBusy(false);
     }
@@ -150,7 +177,7 @@ export default function WeekBoard({
     return (
       <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
         <p className="text-white/60">No cycles yet. Create your first weekly drop.</p>
-        <button onClick={() => setShowNew(true)} className="mt-3 rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-medium text-black">
+        <button onClick={() => setShowNew(true)} className="mt-3 rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-300">
           New cycle
         </button>
         {showNew && <NewCycleForm form={form} setForm={setForm} onCreate={createCycle} busy={busy} sel={sel} organizations={organizations} err={newCycleErr} />}
@@ -173,7 +200,7 @@ export default function WeekBoard({
         </select>
         {selected && (
           <>
-            <span className="text-sm text-white/50">{selected.starts_on} → {selected.ends_on}</span>
+            <span className="text-sm text-white/50">{fmtDay(selected.starts_on)} → {fmtDay(selected.ends_on)}</span>
             <span className={`rounded-full px-2 py-0.5 text-xs ${selected.status === "Active" ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/60"}`}>
               {selected.status}
             </span>
@@ -208,7 +235,7 @@ export default function WeekBoard({
         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-medium">Add concepts to this cycle</h3>
-            <button onClick={addPicked} disabled={busy || picked.size === 0} className="rounded-lg bg-emerald-500/90 px-3 py-1 text-sm font-medium text-black disabled:opacity-40">
+            <button onClick={addPicked} disabled={busy || picked.size === 0} className="rounded-lg bg-emerald-400 px-3 py-1 text-sm font-semibold text-black hover:bg-emerald-300 disabled:opacity-40">
               Add {picked.size || ""}
             </button>
           </div>
@@ -232,6 +259,10 @@ export default function WeekBoard({
             ))}
           </div>
         </div>
+      )}
+
+      {actionErr && (
+        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{actionErr}</p>
       )}
 
       {/* table */}
@@ -285,11 +316,18 @@ export default function WeekBoard({
                     {PROD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
-                <td className="px-3 py-2 text-center">{d.has_video ? <span className="text-emerald-400">✓</span> : <span className="text-white/30">—</span>}</td>
+                <td className="px-3 py-2 text-center">{d.has_video ? <span className="text-emerald-400" role="img" aria-label="Has video">✓</span> : <span className="text-white/30" role="img" aria-label="No video yet">—</span>}</td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                     <Link href={`/creatives/${d.concept_id}`} className="text-emerald-400 hover:underline">Open</Link>
-                    <button onClick={() => removeDeliverable(d.id)} className="text-white/30 hover:text-red-300" aria-label="Remove from cycle">✕</button>
+                    {confirmRemove === d.id ? (
+                      <span className="flex items-center gap-1.5 text-xs">
+                        <button onClick={() => removeDeliverable(d.id)} className="rounded bg-red-500/20 px-1.5 py-0.5 text-red-300 hover:bg-red-500/30">Remove</button>
+                        <button onClick={() => setConfirmRemove(null)} className="text-white/40 hover:text-white">Keep</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setConfirmRemove(d.id)} className="text-white/30 hover:text-red-300" aria-label="Remove from cycle">✕</button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -299,6 +337,11 @@ export default function WeekBoard({
       </div>
     </div>
   );
+}
+
+function fmtDay(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? iso : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function NewCycleForm({
@@ -337,7 +380,7 @@ function NewCycleForm({
         <span className="text-xs text-white/40">Target</span>
         <input type="number" value={form.target_count} onChange={(e) => setForm({ ...form, target_count: Number(e.target.value) })} className={`${sel} w-20`} />
       </label>
-      <button onClick={onCreate} disabled={busy} className="rounded-lg bg-emerald-500/90 px-4 py-2 font-medium text-black disabled:opacity-50">Create</button>
+      <button onClick={onCreate} disabled={busy} className="rounded-lg bg-emerald-400 px-4 py-2 font-semibold text-black hover:bg-emerald-300 disabled:opacity-50">Create</button>
       {err && <p className="w-full text-xs text-red-300">{err}</p>}
     </div>
   );

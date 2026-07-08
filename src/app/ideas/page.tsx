@@ -76,7 +76,7 @@ export default async function IdeasPage() {
     <main className="mx-auto max-w-6xl p-6">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[27px] font-semibold tracking-tight">Ideas</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Ideas</h1>
           <p className="mt-1.5 max-w-xl text-sm text-white/55">
             The concept bank for Outlier. Every card is one test — open it to see the hypothesis and the brief.
           </p>

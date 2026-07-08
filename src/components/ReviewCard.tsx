@@ -30,15 +30,22 @@ export default function ReviewCard({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
+  const [err, setErr] = useState<string | null>(null);
 
   async function setApproval(next: string) {
     setBusy(true);
+    setErr(null);
     try {
-      await fetch(`/api/creatives/${creativeId}/approval`, {
+      const res = await fetch(`/api/creatives/${creativeId}/approval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state: next }),
       });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setErr(j?.error ?? "Couldn't update the approval — try again.");
+        return;
+      }
       router.refresh();
     } finally {
       setBusy(false);
@@ -48,12 +55,18 @@ export default function ReviewCard({
   async function postComment() {
     if (!text.trim()) return;
     setBusy(true);
+    setErr(null);
     try {
-      await fetch(`/api/creatives/${creativeId}/comments`, {
+      const res = await fetch(`/api/creatives/${creativeId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body: text }),
       });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setErr(j?.error ?? "Couldn't post the comment — try again.");
+        return;
+      }
       setText("");
       router.refresh();
     } finally {
@@ -73,11 +86,13 @@ export default function ReviewCard({
             Request changes
           </button>
           <button onClick={() => setApproval("Approved")} disabled={busy}
-            className="rounded-lg bg-emerald-500/90 px-3 py-1 text-sm font-medium text-black disabled:opacity-50">
+            className="rounded-lg bg-emerald-400 px-3 py-1 text-sm font-semibold text-black hover:bg-emerald-300 disabled:opacity-50">
             Approve
           </button>
         </div>
       </div>
+
+      {err && <p className="mt-2 text-sm text-red-300">{err}</p>}
 
       <ul className="mt-3 space-y-2 text-sm">
         {comments.map((c) => (

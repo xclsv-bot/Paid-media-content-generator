@@ -88,7 +88,7 @@ export default async function QueuePage() {
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="text-xs uppercase tracking-wide text-white/40">
-                    {cycle?.label}{r.due_date ? ` · due ${r.due_date}` : ""}
+                    {cycle?.label}{r.due_date ? ` · due ${new Date(r.due_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
                   </div>
                   <h2 className="mt-0.5 truncate text-lg font-medium">{c?.hook_line}</h2>
                   <p className="text-sm text-white/50">
