@@ -115,7 +115,7 @@ export async function POST(req: Request) {
 
   // Golden examples: the winning scripts themselves — the patterns to build on.
   const goldenLine = (g: GoldenExample) =>
-    `• "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`;
+    `• "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}${g.transcript ? `\n  Winning delivery (what was actually said): "${g.transcript.slice(0, 240)}"` : ""}`;
   const goldenBlock = golden.error
     ? `(golden set unavailable: ${golden.error})`
     : golden.examples.length

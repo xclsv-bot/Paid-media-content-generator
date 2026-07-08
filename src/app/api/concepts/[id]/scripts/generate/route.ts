@@ -72,7 +72,7 @@ export async function POST(
 
   const goldenBlock = golden.examples.length
     ? `PROVEN WINNING SCRIPTS (study the pattern — don't copy verbatim):\n${golden.examples
-        .map((g) => `- "${g.dimensions?.hook_line ?? "?"}" (${g.dimensions?.family ?? "?"}) — ${g.why_it_won}\n  ${g.script.slice(0, 220)}`)
+        .map((g) => `- "${g.dimensions?.hook_line ?? "?"}" (${g.dimensions?.family ?? "?"}) — ${g.why_it_won}\n  ${g.script.slice(0, 220)}${g.transcript ? `\n  Winning delivery: "${g.transcript.slice(0, 200)}"` : ""}`)
         .join("\n")}`
     : "";
   const winnersBlock = !cache.error && cache.winners.length

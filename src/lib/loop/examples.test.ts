@@ -20,6 +20,7 @@ function golden(dims: Partial<GoldenExample["dimensions"]>): GoldenExample {
     },
     source: "auto",
     status: "active",
+    transcript: null,
     score: 1,
     cpt_cents: 2000,
     results: 40,

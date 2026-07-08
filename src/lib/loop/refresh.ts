@@ -225,6 +225,26 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     format: q.format,
   });
 
+  // Winning-video transcripts — what the winning cut actually SAID. Snapshot a
+  // short excerpt into each golden example so ideation can ground on the proven
+  // copy, not just the written script (Zaire: "here's the copy that worked").
+  const goldenIds = topGolden.map((q) => q.creative_id);
+  const transcriptByConcept = new Map<string, string>();
+  if (goldenIds.length) {
+    const { data: vids } = await admin
+      .from("video_assets")
+      .select("creative_id, transcript, uploaded_at")
+      .in("creative_id", goldenIds)
+      .eq("transcript_status", "done")
+      .not("transcript", "is", null)
+      .order("uploaded_at", { ascending: false });
+    for (const v of (vids ?? []) as { creative_id: string; transcript: string | null }[]) {
+      if (v.transcript && v.transcript.trim() && !transcriptByConcept.has(v.creative_id)) {
+        transcriptByConcept.set(v.creative_id, v.transcript.trim());
+      }
+    }
+  }
+
   let goldenSkipped = 0;
   const goldenCandidates: Record<string, unknown>[] = [];
   for (const q of topGolden) {
@@ -244,6 +264,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       cpt_cents: q.cpt_cents,
       results: q.results,
       target_cents: q.target_cents,
+      transcript: transcriptByConcept.get(q.creative_id)?.slice(0, 600) ?? null,
     });
   }
   // Always call the refresh — an empty candidate list must still prune stale

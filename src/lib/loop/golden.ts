@@ -45,6 +45,7 @@ export type GoldenExample = {
   };
   source: "auto" | "curated";
   status: "active" | "pinned" | "removed";
+  transcript: string | null;
   score: number;
   cpt_cents: number;
   results: number;
@@ -92,7 +93,7 @@ export async function getGoldenExamples(
   const { data, error } = await supabase
     .from("golden_examples")
     .select(
-      "creative_id, org_id, script, script_version, why_it_won, dimensions, source, status, score, cpt_cents, results, target_cents, captured_at",
+      "creative_id, org_id, script, script_version, why_it_won, dimensions, source, status, score, cpt_cents, results, target_cents, transcript, captured_at",
     )
     .eq("org_id", orgId)
     .neq("status", "removed")
