@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import WeekBoard, {
   type Cycle,
   type Deliverable,
@@ -8,6 +9,13 @@ import WeekBoard, {
   type Available,
   type Organization,
 } from "@/components/WeekBoard";
+import { getFamilySlots, type FamilySlot } from "@/lib/loop/slots";
+
+const SLOT_CHIP: Record<FamilySlot["status"], string> = {
+  Proven: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
+  Validating: "border-amber-400/40 bg-amber-400/10 text-amber-300",
+  Untested: "border-white/15 bg-white/[0.04] text-white/55",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +50,12 @@ export default async function ThisWeekPage({
 
   let deliverables: Deliverable[] = [];
   let available: Available[] = [];
+  let slots: FamilySlot[] = [];
 
   if (selected) {
+    // Portfolio slots for the selected cycle's org: which families are proven
+    // (variant them), which are mid-validation, which explore slots are empty.
+    slots = (await getFamilySlots(supabase, selected.org_id)).slots;
     const { data: delivData } = await supabase
       .from("deliverables")
       .select(
@@ -136,6 +148,36 @@ export default async function ThisWeekPage({
           The active weekly drop — assign creators, set due dates, track production.
         </p>
       </header>
+
+      {slots.length > 0 && (
+        <section className="mb-5 rounded-[14px] border border-white/10 bg-white/[0.025] p-4">
+          <div className="mb-2.5 flex items-baseline gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-white/45">Portfolio slots</span>
+            <span className="text-[11.5px] text-white/40">
+              matured, trial-gated verdicts per family — fill the empty slots, variant the proven ones
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {slots.map((s) => {
+              const label = `${s.family}${s.judged > 0 ? ` · ${s.hits}/${s.judged} hit` : ""}`;
+              return s.status === "Proven" ? (
+                <span key={s.family} className={`rounded-full border px-2.5 py-1 text-[12px] ${SLOT_CHIP[s.status]}`} title={s.cpt != null ? `Cohort CPT $${s.cpt.toFixed(2)}` : undefined}>
+                  {label} · Proven
+                </span>
+              ) : (
+                <Link
+                  key={s.family}
+                  href="/ideate"
+                  className={`rounded-full border px-2.5 py-1 text-[12px] hover:border-white/40 ${SLOT_CHIP[s.status]}`}
+                  title={`${s.status} — ideate to fill this slot`}
+                >
+                  {label} · {s.status} →
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
       <WeekBoard
         cycles={cycles}
         selected={selected}
