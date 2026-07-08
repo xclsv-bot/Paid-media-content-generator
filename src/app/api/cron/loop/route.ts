@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthorizedCron } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateLearnings } from "@/lib/loop/generate";
+import { refreshAll } from "@/lib/loop/refresh";
 
 export const maxDuration = 300;
 
@@ -19,11 +20,14 @@ export async function GET(req: Request) {
   }
 
   const admin = createAdminClient();
+  // Rebuild winners/golden/bad first so the learnings below read fresh stores
+  // (the daily refresh cron may be hours stale by the weekly run).
+  const refresh = await refreshAll(admin);
   const { data: clientOrgs } = await admin.from("organizations").select("id, slug").eq("is_agency", false);
   const results: Record<string, unknown> = {};
   for (const org of clientOrgs ?? []) {
     const learn = await generateLearnings(admin, null, org.id);
     results[org.slug] = learn.error ? { error: learn.error, status: learn.status } : "generated";
   }
-  return NextResponse.json({ ok: true, learnings: results });
+  return NextResponse.json({ ok: true, refresh, learnings: results });
 }

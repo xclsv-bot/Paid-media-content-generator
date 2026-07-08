@@ -7,6 +7,7 @@ import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
 import OrgPicker from "@/components/OrgPicker";
 import PromotePatternButton from "@/components/PromotePatternButton";
+import ReportImporter from "@/components/ReportImporter";
 
 export const dynamic = "force-dynamic";
 
@@ -80,16 +81,26 @@ export default async function PerformancePage({
     user?.org_id ??
     null;
 
-  const [{ data: metricRows }, { data: creativeRows }, learning] = await Promise.all([
+  // creative_metrics has no org column — the ad NAME is the join — so scope
+  // the report to this org's ad names via its concepts.
+  const [{ data: creativeRows }, learning] = await Promise.all([
     supabase
-      .from("creative_metrics")
-      .select(
-        "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
-      )
-      .order("spend", { ascending: false, nullsFirst: false }),
-    supabase.from("creatives").select("id, ad_name, hook_line").not("ad_name", "is", null),
+      .from("creatives")
+      .select("id, ad_name, hook_line")
+      .not("ad_name", "is", null)
+      .eq("org_id", orgId ?? ""),
     orgId ? latestLearnings(supabase, orgId) : Promise.resolve(null),
   ]);
+  const orgAdNames = [...new Set((creativeRows ?? []).map((c) => c.ad_name as string))];
+  const { data: metricRows } = orgAdNames.length
+    ? await supabase
+        .from("creative_metrics")
+        .select(
+          "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
+        )
+        .in("ad_name", orgAdNames)
+        .order("spend", { ascending: false, nullsFirst: false })
+    : { data: [] };
 
   const all = (metricRows ?? []) as Metric[];
 
@@ -148,14 +159,17 @@ export default async function PerformancePage({
             {targetDollars != null ? usd(targetDollars) : "—"}.
           </p>
         </div>
-        {staff && clientOrgs && clientOrgs.length > 1 && (
-          <OrgPicker organizations={clientOrgs} currentSlug={clientOrgs.find((o) => o.id === orgId)?.slug ?? ""} />
-        )}
+        <div className="flex items-center gap-3">
+          {staff && clientOrgs && clientOrgs.length > 1 && (
+            <OrgPicker organizations={clientOrgs} currentSlug={clientOrgs.find((o) => o.id === orgId)?.slug ?? ""} />
+          )}
+          {orgId && <ReportImporter orgId={orgId} />}
+        </div>
       </header>
 
       {metrics.length === 0 ? (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No report loaded yet. Add a weekly report to populate this.
+          No report loaded yet — click “Import weekly report” above and paste the sheet rows to light this page up.
         </p>
       ) : (
         <>

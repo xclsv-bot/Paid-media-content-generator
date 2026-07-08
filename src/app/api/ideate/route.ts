@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { Anthropic, createAnthropic, NOT_CONFIGURED } from "@/lib/anthropic";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
@@ -32,8 +32,13 @@ const CONCEPT_SCHEMA = {
           sport: { type: "string" },
           feature: { type: "string" },
           hypothesis: { type: "string" },
+          // Naming-convention slots — these compose the ad name that joins the
+          // concept to the weekly report, so every concept must carry them.
+          format: { type: "string", enum: ["Video", "Short Video"] },
+          talent: { type: "string", enum: ["NoFace", "Face"] },
+          theme: { type: "string", enum: ["Information", "Winning", "Process", "Product", "Community"] },
         },
-        required: ["family", "hook", "angle", "archetype", "sport", "feature", "hypothesis"],
+        required: ["family", "hook", "angle", "archetype", "sport", "feature", "hypothesis", "format", "talent", "theme"],
       },
     },
   },
@@ -51,15 +56,9 @@ export async function POST(req: Request) {
   // `ant auth login` profile on disk. Construction throws if none are present.
   let client: Anthropic;
   try {
-    client = new Anthropic();
+    client = createAnthropic();
   } catch {
-    return NextResponse.json(
-      {
-        error:
-          "Ideate isn't configured — add Anthropic credentials (set ANTHROPIC_API_KEY in the deployment, or run `ant auth login` in local dev).",
-      },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
   }
 
   const { messages, sources, org_id: orgId } = (await req.json()) as {
@@ -161,7 +160,7 @@ ${learnBlock || ""}
 
 ${patternsBlock || ""}
 
-When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, and a one-sentence hypothesis stating what it tests and why you expect it to work. Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
+When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, a one-sentence hypothesis stating what it tests and why you expect it to work, and the three naming-convention slots: format (Video = full-length 9:16; Short Video = quick cutdown), talent (Face = creator on camera; NoFace = screen-record/faceless), and theme (Information, Winning, Process, Product, or Community — the emotional register of the hook). Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
   const apiMessages = messages.map((m) => ({
     role: m.role === "ai" ? ("assistant" as const) : ("user" as const),
