@@ -7,6 +7,17 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isPublic = path === "/login" || path.startsWith("/auth");
+  // Machine endpoints authenticate with a bearer secret, not a session cookie.
+  // Without this carve-out the cookie gate 307s Vercel cron + the agent to
+  // /login and their handlers (which fail closed on a bad/missing bearer)
+  // never run at all.
+  if (
+    path.startsWith("/api/cron") ||
+    path.startsWith("/api/agent") ||
+    path === "/api/winners/refresh"
+  ) {
+    return NextResponse.next({ request });
+  }
 
   const toLogin = () => {
     const url = request.nextUrl.clone();

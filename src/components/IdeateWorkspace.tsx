@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fetchJson } from "@/lib/http";
+import { composeAdName } from "@/lib/client/categorize";
 import { createClient } from "@/lib/supabase/client";
 
 const REF_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_REFERENCES_BUCKET || "references";
 type RefClip = { id: string; title: string | null; file_name: string; transcript: string | null; transcript_status: string | null };
+type VideoClip = { id: string; file_name: string; transcript: string | null; hook_line: string | null };
 
 type Concept = {
   family: string;
@@ -15,9 +17,13 @@ type Concept = {
   sport: string;
   feature: string;
   hypothesis: string;
+  format?: string;
+  talent?: string;
+  theme?: string;
   near_duplicate?: string | null;
   _added?: boolean;
 };
+
 type Msg = { role: "user" | "ai"; text: string; concepts?: Concept[] };
 type Source = { type: string; name: string; note?: string };
 
@@ -43,6 +49,7 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
   const refInputRef = useRef<HTMLInputElement>(null);
   const [refBusy, setRefBusy] = useState(false);
   const [recentRefs, setRecentRefs] = useState<RefClip[]>([]);
+  const [recentVideos, setRecentVideos] = useState<VideoClip[]>([]);
 
   function flash(t: string) {
     setToast(t);
@@ -57,9 +64,20 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
       /* non-fatal */
     }
   }
+  async function loadRecentVideos(org: string) {
+    try {
+      const res = await fetch(`/api/videos?org=${encodeURIComponent(org)}`);
+      if (res.ok) setRecentVideos(((await res.json()).videos as VideoClip[]) ?? []);
+    } catch {
+      /* non-fatal */
+    }
+  }
   useEffect(() => {
     loadRecent();
   }, []);
+  useEffect(() => {
+    if (orgId) loadRecentVideos(orgId);
+  }, [orgId]);
 
   // Attach a reference video → upload → Whisper transcript → add as a source.
   async function attachReference() {
@@ -106,6 +124,15 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
     flash("Reference added ✓");
   }
 
+  function addVideoTranscript(v: VideoClip) {
+    if (!v.transcript) return;
+    setSources((s) => [
+      ...s,
+      { type: "Production transcript", name: v.hook_line || v.file_name, note: v.transcript! },
+    ]);
+    flash("Transcript added ✓");
+  }
+
   async function send() {
     const text = composer.trim();
     if (!text || busy || !orgId) return;
@@ -150,6 +177,8 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
         archetype: c.archetype,
         sport: c.sport,
         feature_pillar: c.feature,
+        format: c.format || null,
+        ad_name: composeAdName({ sport: c.sport, format: c.format, talent: c.talent, theme: c.theme }),
         idea_status: "Backlog",
         add_to_cycle: toCycle,
       }),
@@ -258,6 +287,24 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
                     className="truncate rounded px-2 py-1 text-left text-[11.5px] text-white/65 hover:bg-white/10"
                   >
                     ↺ {r.title || r.file_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {recentVideos.filter((v) => v.transcript).length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 font-mono text-[9.5px] uppercase tracking-wide text-white/40">Production transcripts</div>
+              <div className="flex flex-col gap-1">
+                {recentVideos.filter((v) => v.transcript).map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => addVideoTranscript(v)}
+                    title={v.hook_line || v.file_name}
+                    className="truncate rounded px-2 py-1 text-left text-[11.5px] text-white/65 hover:bg-white/10"
+                  >
+                    🎬 {v.hook_line || v.file_name}
                   </button>
                 ))}
               </div>

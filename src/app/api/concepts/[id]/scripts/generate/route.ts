@@ -39,7 +39,7 @@ export async function POST(
   const { data: c } = await supabase
     .from("creatives")
     .select(
-      "hook_line, hypothesis, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)",
+      "org_id, hook_line, hypothesis, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)",
     )
     .eq("id", conceptId)
     .single();
@@ -49,15 +49,24 @@ export async function POST(
   const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
   const clientName = org?.display_name ?? "the client";
 
-  // Ground the writer in what's actually winning (proven graduates).
-  const { data: winners } = await supabase
+  // Ground the writer in what's actually winning (proven graduates) — for
+  // THIS client only. creative_metrics has no org column, so scope through
+  // the org's ad names.
+  const { data: orgNames } = await supabase
+    .from("creatives")
+    .select("ad_name")
+    .eq("org_id", (c as { org_id?: string }).org_id ?? "")
+    .not("ad_name", "is", null);
+  const nameSet = new Set((orgNames ?? []).map((n) => n.ad_name as string));
+  const { data: graduates } = await supabase
     .from("creative_metrics")
     .select("ad_name, cpa")
     .eq("verdict", "GRADUATE")
     .order("cpa", { ascending: true })
-    .limit(5);
+    .limit(50);
+  const winners = (graduates ?? []).filter((w) => nameSet.has(w.ad_name)).slice(0, 5);
   const winningText =
-    (winners ?? [])
+    winners
       .map((w) => `- ${shortName(w.ad_name)}${w.cpa != null ? ` · CPA $${Number(w.cpa).toFixed(2)}` : ""}`)
       .join("\n") || "(no graduates yet — lean on the hypothesis)";
 

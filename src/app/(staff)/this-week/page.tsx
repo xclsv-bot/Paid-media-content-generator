@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import WeekBoard, {
@@ -30,8 +29,7 @@ export default async function ThisWeekPage({
 }: {
   searchParams: Promise<{ cycle?: string }>;
 }) {
-  const user = await getCurrentUser();
-  if (!isStaff(user)) redirect("/ideas");
+  const user = await requireStaff();
 
   const { cycle: cycleParam } = await searchParams;
   const supabase = await createClient();

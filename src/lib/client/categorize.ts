@@ -89,3 +89,31 @@ export function facetValues(items: Facets[], key: FacetKey): string[] {
   }
   return [...set].sort((a, b) => a.localeCompare(b));
 }
+
+// ---------------------------------------------------------------------------
+// Encoder — the single source of truth for building a convention ad name.
+// The name is the join key between concepts and the weekly report, so every
+// surface that mints one (ConceptForm, Ideate) MUST go through this. Date
+// token matches the slate's existing names: M.D.YY (e.g. "7.8.26").
+// ---------------------------------------------------------------------------
+export function adNameDateToken(d: Date = new Date()): string {
+  return `${d.getMonth() + 1}.${d.getDate()}.${String(d.getFullYear()).slice(2)}`;
+}
+
+export function composeAdName(parts: {
+  sport?: string | null;
+  format?: string | null;
+  talent?: string | null;
+  theme?: string | null;
+  date?: string | null;
+}): string {
+  return [
+    "XCLSV",
+    "XCLSV",
+    (parts.sport ?? "").trim() || "All",
+    (parts.format ?? "").trim() || "Video",
+    (parts.talent ?? "").trim() || "NoFace",
+    (parts.theme ?? "").trim() || "Information",
+    (parts.date ?? "").trim() || adNameDateToken(),
+  ].join(" _ ");
+}

@@ -3,8 +3,12 @@ import "./globals.css";
 import AppNav from "@/components/AppNav";
 
 export const metadata: Metadata = {
-  title: "XCLSV Creative Dashboard",
-  description: "Content slate, video delivery, and Meta performance for Outlier.",
+  title: {
+    default: "XCLSV Studio",
+    template: "%s · XCLSV Studio",
+  },
+  description:
+    "XCLSV Media's creative engine — ideate, produce, and grade paid-social content on a weekly testing loop.",
 };
 
 export default function RootLayout({

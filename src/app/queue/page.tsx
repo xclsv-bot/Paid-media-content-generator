@@ -6,6 +6,7 @@ import { createSignedStream } from "@/lib/storage";
 import VideoUploader from "@/components/VideoUploader";
 import VideoAssetCard from "@/components/VideoAssetCard";
 import DeliverableStatusSelect from "@/components/DeliverableStatusSelect";
+import { fmtDay } from "@/lib/client/format";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ function one<T>(v: T | T[] | null): T | null {
 export default async function QueuePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (user.role === "client_viewer") redirect("/client");
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -72,9 +74,14 @@ export default async function QueuePage() {
       </header>
 
       {rows.length === 0 && (
-        <p className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-white/50">
-          Nothing assigned to you yet.
-        </p>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-white/50">
+          <p>Nothing assigned to you yet.</p>
+          {user.role !== "creator" && (
+            <p className="mt-1 text-sm text-white/40">
+              Assignments happen on <Link href="/this-week" className="text-emerald-400 hover:underline">This Week</Link> — this page shows only concepts where you are the assignee.
+            </p>
+          )}
+        </div>
       )}
 
       <div className="space-y-4">
@@ -87,7 +94,7 @@ export default async function QueuePage() {
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="text-xs uppercase tracking-wide text-white/40">
-                    {cycle?.label}{r.due_date ? ` · due ${r.due_date}` : ""}
+                    {cycle?.label}{r.due_date ? ` · due ${fmtDay(r.due_date)}` : ""}
                   </div>
                   <h2 className="mt-0.5 truncate text-lg font-medium">{c?.hook_line}</h2>
                   <p className="text-sm text-white/50">
@@ -95,7 +102,7 @@ export default async function QueuePage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <DeliverableStatusSelect id={r.id} value={r.production_status} />
+                  <DeliverableStatusSelect id={r.id} value={r.production_status} creator={user.role === "creator"} />
                   <Link href={`/creatives/${r.concept_id}`} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10">
                     Open brief
                   </Link>

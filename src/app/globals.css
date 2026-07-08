@@ -10,3 +10,10 @@ body {
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
+
+/* Keyboard focus is always visible, even where a component removes the
+   default outline. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid rgb(52 211 153 / 0.6); /* emerald-400 */
+  outline-offset: 2px;
+}

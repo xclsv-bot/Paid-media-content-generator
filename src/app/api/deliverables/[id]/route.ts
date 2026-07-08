@@ -2,18 +2,11 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
-const STATUSES = [
-  "Assigned",
-  "In production",
-  "Submitted",
-  "In revision",
-  "Approved",
-  "Delivered",
-];
+import { CREATOR_STATUSES, PROD_STATUSES } from "@/lib/deliverables";
 
 // PATCH /api/deliverables/:id  { assignee_id?, due_date?, production_status? }
 // Staff edit any field. A creator may change only production_status on their own
-// deliverable (RLS enforces assignee = self).
+// deliverable (RLS enforces assignee = self), and only within CREATOR_STATUSES.
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -33,7 +26,8 @@ export async function PATCH(
     if ("due_date" in body) patch.due_date = body.due_date || null;
   }
   if ("production_status" in body) {
-    if (!STATUSES.includes(body.production_status)) {
+    const allowed = staff ? PROD_STATUSES : CREATOR_STATUSES;
+    if (!allowed.includes(body.production_status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
     patch.production_status = body.production_status;

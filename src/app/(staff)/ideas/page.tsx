@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import IdeasList, { type IdeaRow } from "@/components/IdeasList";
@@ -26,8 +25,7 @@ function fam(f: Row["concept_families"]): string | null {
 }
 
 export default async function IdeasPage() {
-  const user = await getCurrentUser();
-  if (user?.role === "creator") redirect("/queue");
+  await requireStaff();
 
   const supabase = await createClient();
   const [{ data }, { data: perf }, { data: vids }, { data: delivs }] = await Promise.all([
@@ -78,7 +76,7 @@ export default async function IdeasPage() {
     <main className="mx-auto max-w-6xl p-6">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[27px] font-semibold tracking-tight">Ideas</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Ideas</h1>
           <p className="mt-1.5 max-w-xl text-sm text-white/55">
             The concept bank for Outlier. Every card is one test — open it to see the hypothesis and the brief.
           </p>
