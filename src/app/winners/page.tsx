@@ -40,7 +40,7 @@ type GoldenRow = {
 
 type BadRow = {
   id: string;
-  kind: "proven_loser" | "review_rejection";
+  kind: "proven_loser" | "review_rejection" | "manual_kill";
   creative_id: string;
   reason: string;
   cpt_cents: number | null;
@@ -212,25 +212,27 @@ export default async function WinnersPage() {
         <section className="mb-8">
           <h2 className="mb-1 text-lg font-medium">Bad examples</h2>
           <p className="mb-2 text-[13px] text-white/50">
-            What not to make again — mature, volume-gated proven losers and compliance-rejected
-            scripts. These feed Ideate and the reviewer as patterns to avoid.
+            What not to make again — mature, volume-gated proven losers, content the paid team
+            killed, and compliance-rejected scripts. These feed Ideate and the reviewer as patterns to avoid.
           </p>
           <div className="flex flex-col gap-2">
             {badRows.map((b) => {
               const org = one(b.organizations);
               const dim = b.dimensions ?? {};
-              const loser = b.kind === "proven_loser";
+              const perfBad = b.kind === "proven_loser" || b.kind === "manual_kill";
+              const tag =
+                b.kind === "proven_loser" ? "proven loser" : b.kind === "manual_kill" ? "killed" : "rejected";
               return (
                 <div key={b.id} className="rounded-[12px] border border-white/10 bg-white/[0.025] p-3.5">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${loser ? "bg-red-400/15 text-red-300" : "bg-amber-400/15 text-amber-300"}`}>
-                      {loser ? "proven loser" : "rejected"}
+                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${perfBad ? "bg-red-400/15 text-red-300" : "bg-amber-400/15 text-amber-300"}`}>
+                      {tag}
                     </span>
                     {staff && <span className="text-[11.5px] text-white/40">{org?.display_name ?? "—"}</span>}
                     <Link href={`/creatives/${b.creative_id}`} className="text-[14px] font-medium text-sky-300 hover:underline">
                       “{dim.hook_line ?? "?"}”
                     </Link>
-                    {loser && b.cpt_cents != null && b.target_cents != null && (
+                    {perfBad && b.cpt_cents != null && b.target_cents != null && (
                       <span className="text-[12px] text-white/45">
                         CPT ${(b.cpt_cents / 100).toFixed(2)} vs ${(b.target_cents / 100).toFixed(2)} target · {b.results ?? "?"} trials
                       </span>

@@ -11,7 +11,7 @@ export { badMax, loserCptMultiplier, loserMatureDays, loserMinResults };
 
 export type BadExample = {
   id: string;
-  kind: "proven_loser" | "review_rejection";
+  kind: "proven_loser" | "review_rejection" | "manual_kill";
   creative_id: string;
   org_id: string;
   script: string;
@@ -49,9 +49,17 @@ export async function getBadExamples(
 ): Promise<{ examples: BadExample[]; error: string | null }> {
   const cols =
     "id, kind, creative_id, org_id, script, script_version, reason, dimensions, cpt_cents, target_cents, results, captured_at";
-  const [loserRes, rejRes] = await Promise.all([
+  const [loserRes, killRes, rejRes] = await Promise.all([
     // The refresh prunes proven losers to BAD_MAX, so this reads the whole set.
     supabase.from("bad_examples").select(cols).eq("org_id", orgId).eq("kind", "proven_loser").limit(limit),
+    // Manual kills — human KILL verdicts; negative performance signal like losers.
+    supabase
+      .from("bad_examples")
+      .select(cols)
+      .eq("org_id", orgId)
+      .eq("kind", "manual_kill")
+      .order("captured_at", { ascending: false })
+      .limit(limit),
     supabase
       .from("bad_examples")
       .select(cols)
@@ -60,13 +68,16 @@ export async function getBadExamples(
       .order("captured_at", { ascending: false })
       .limit(limit),
   ]);
-  const error = loserRes.error ?? rejRes.error;
+  const error = loserRes.error ?? killRes.error ?? rejRes.error;
   if (error) return { examples: [], error: error.message };
-  const losers = ((loserRes.data ?? []) as unknown as BadExample[]).sort(
-    (a, b) => ratio(b) - ratio(a),
-  );
+  // Losers + kills first (worst CPT ratio first — kills without a CPT sort last),
+  // then the most recent compliance rejections.
+  const negatives = ([
+    ...((loserRes.data ?? []) as unknown as BadExample[]),
+    ...((killRes.data ?? []) as unknown as BadExample[]),
+  ]).sort((a, b) => ratio(b) - ratio(a));
   const rejections = (rejRes.data ?? []) as unknown as BadExample[];
-  return { examples: [...losers, ...rejections], error: null };
+  return { examples: [...negatives, ...rejections], error: null };
 }
 
 function ratio(r: BadExample): number {
@@ -83,6 +94,9 @@ export function badExampleLine(b: BadExample): string {
     const cpt = b.cpt_cents != null ? `$${(b.cpt_cents / 100).toFixed(2)}` : "—";
     const tgt = b.target_cents != null ? `$${(b.target_cents / 100).toFixed(2)}` : "—";
     return `${head} · CPT ${cpt} vs target ${tgt} (${b.results ?? "?"} trials) — ${b.reason}`;
+  }
+  if (b.kind === "manual_kill") {
+    return `${head} · ${b.reason}`;
   }
   return `${head} — rejected: ${b.reason}`;
 }

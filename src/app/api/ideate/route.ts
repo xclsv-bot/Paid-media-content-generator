@@ -123,13 +123,13 @@ export async function POST(req: Request) {
       : "(golden set is empty — no winner has a captured script yet; the daily refresh populates it)";
 
   // Bad examples: proven losers + compliance rejections — the patterns to avoid.
-  const losers = bad.examples.filter((b) => b.kind === "proven_loser");
+  const losers = bad.examples.filter((b) => b.kind === "proven_loser" || b.kind === "manual_kill");
   const rejections = bad.examples.filter((b) => b.kind === "review_rejection");
   const badBlock = bad.error
     ? `(bad-example store unavailable: ${bad.error})`
     : bad.examples.length
       ? [
-          losers.length ? `PROVEN LOSERS (mature, volume-gated, CPT well over target):\n${losers.map(badExampleLine).join("\n")}` : "",
+          losers.length ? `PROVEN LOSERS & KILLED CONTENT (patterns to avoid — proven losers are mature/volume-gated over target; kills are the paid team decisions):\n${losers.map(badExampleLine).join("\n")}` : "",
           rejections.length ? `COMPLIANCE REJECTIONS (scripts the reviewer failed — never repeat these mistakes):\n${rejections.map(badExampleLine).join("\n")}` : "",
         ].filter(Boolean).join("\n\n")
       : EMPTY_BAD_NOTE;

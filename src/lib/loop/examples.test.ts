@@ -117,4 +117,18 @@ describe("badExampleLine", () => {
     expect(line).toContain("rejected: Compliance: names a competitor app");
     expect(line).not.toContain("CPT");
   });
+
+  it("renders a manual kill with the paid team's reason", () => {
+    const line = badExampleLine({
+      ...base,
+      kind: "manual_kill",
+      reason: "Killed by the paid team: CPA $25.00 vs $10.00 target over 8 conversions",
+      cpt_cents: 2500,
+      target_cents: 1000,
+      results: 8,
+    } as BadExample);
+    expect(line).toContain('"The losing hook"');
+    expect(line).toContain("Killed by the paid team");
+    expect(line).not.toContain("rejected:");
+  });
 });
