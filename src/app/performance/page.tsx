@@ -7,6 +7,8 @@ import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
 import OrgPicker from "@/components/OrgPicker";
 import PromotePatternButton from "@/components/PromotePatternButton";
+import VerdictSelect from "@/components/VerdictSelect";
+import { VERDICTS, VERDICT_LABEL, VERDICT_BAR, type Verdict } from "@/lib/metrics/verdict";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,7 @@ type Metric = {
   ctr: number | null;
   bau_cpa: number | null;
   verdict: string | null;
+  verdict_source: string | null;
   reason: string | null;
   cpm: number | null;
   cpi: number | null;
@@ -29,19 +32,6 @@ type Metric = {
   scvr: number | null;
   aov: number | null;
   roas: number | null;
-};
-
-const VERDICTS = ["GRADUATE", "KEEP_TESTING", "KILL"] as const;
-const VERDICT_LABEL: Record<string, string> = { GRADUATE: "Graduated", KEEP_TESTING: "Keep testing", KILL: "Killed" };
-const VERDICT_PILL: Record<string, string> = {
-  GRADUATE: "bg-emerald-500/15 text-emerald-300",
-  KEEP_TESTING: "bg-amber-500/15 text-amber-300",
-  KILL: "bg-red-500/15 text-red-300",
-};
-const VERDICT_BAR: Record<string, string> = {
-  GRADUATE: "bg-emerald-400/80",
-  KEEP_TESTING: "bg-amber-400/80",
-  KILL: "bg-red-400/70",
 };
 
 const usd = (n: number | null | undefined) =>
@@ -84,7 +74,7 @@ export default async function PerformancePage({
     supabase
       .from("creative_metrics")
       .select(
-        "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
+        "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, verdict_source, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
       )
       .order("spend", { ascending: false, nullsFirst: false }),
     supabase.from("creatives").select("id, ad_name, hook_line").not("ad_name", "is", null),
@@ -215,6 +205,15 @@ export default async function PerformancePage({
                                   </div>
                                 )}
                                 {m.reason && <div className="mt-0.5 max-w-md text-[11.5px] text-white/45">{m.reason}</div>}
+                                <div className="mt-1.5">
+                                  <VerdictSelect
+                                    adName={m.ad_name}
+                                    flightLabel={m.flight_label}
+                                    verdict={(m.verdict as Verdict | null) ?? null}
+                                    source={m.verdict_source}
+                                    canEdit={staff}
+                                  />
+                                </div>
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums text-white/80">{usd(m.spend)}</td>
                               <td className="px-3 py-2 text-right tabular-nums text-white/80">{num(m.conversions)}</td>
