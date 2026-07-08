@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 export type AppUser = {
@@ -37,4 +38,21 @@ export const getCurrentUser = cache(async (): Promise<AppUser | null> => {
 
 export function isStaff(u: AppUser | null): boolean {
   return !!u && !!u.organizations?.is_agency && (u.role === "admin" || u.role === "editor");
+}
+
+// Where each role lands after login (and where non-staff get bounced when they
+// hit an internal page). Keep in sync with src/app/page.tsx.
+export function homeFor(u: AppUser | null): string {
+  if (!u) return "/login";
+  if (u.role === "creator") return "/queue";
+  if (u.role === "client_viewer") return "/client";
+  return "/ideas";
+}
+
+// Page guard for staff-only surfaces: anyone else is sent to their own home
+// (creator → queue, client → portal) instead of a staff page they can't use.
+export async function requireStaff(): Promise<AppUser> {
+  const user = await getCurrentUser();
+  if (!isStaff(user)) redirect(homeFor(user));
+  return user!;
 }

@@ -21,6 +21,14 @@ export async function POST(
   if (kind === "file" && !storagePath) {
     return NextResponse.json({ error: "storagePath required for file" }, { status: 400 });
   }
+  // Bind stored paths to this concept's prefix (what /api/references/sign
+  // mints) so a reference row can't alias another object in the bucket.
+  if (
+    kind === "file" &&
+    (String(storagePath).includes("..") || !String(storagePath).startsWith(`${conceptId}/`))
+  ) {
+    return NextResponse.json({ error: "Invalid storagePath" }, { status: 400 });
+  }
   if (kind === "link" && !url) {
     return NextResponse.json({ error: "url required for link" }, { status: 400 });
   }

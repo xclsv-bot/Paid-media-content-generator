@@ -28,6 +28,16 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  // The path must be one /api/uploads/sign minted for THIS creative — anything
+  // else would let a row point at (and later sign downloads for) another
+  // concept's master files.
+  if (
+    typeof storagePath !== "string" ||
+    storagePath.includes("..") ||
+    !storagePath.startsWith(`${creativeId}/`)
+  ) {
+    return NextResponse.json({ error: "Invalid storagePath" }, { status: 400 });
+  }
 
   const supabase = await createClient();
   const { data, error } = await supabase

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { isStaff, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import WinnersRefresh from "@/components/WinnersRefresh";
 import GoldenCurationButtons from "@/components/GoldenCurationButtons";
@@ -57,7 +57,7 @@ const STATUS_BADGE: Record<GoldenRow["status"], string> = {
 };
 
 export default async function WinnersPage() {
-  const user = await getCurrentUser();
+  const user = await requireStaff();
   const staff = isStaff(user);
   const supabase = await createClient();
 

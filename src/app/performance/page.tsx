@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { parseNamingConvention } from "@/lib/client/categorize";
@@ -61,8 +61,8 @@ export default async function PerformancePage({
 }: {
   searchParams: Promise<{ org?: string }>;
 }) {
-  const user = await getCurrentUser();
-  const staff = isStaff(user);
+  const user = await requireStaff();
+  const staff = true;
   const supabase = await createClient();
   const { org: orgParam } = await searchParams;
 
@@ -155,7 +155,7 @@ export default async function PerformancePage({
 
       {metrics.length === 0 ? (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No report loaded yet. {isStaff(user) ? "Add a weekly report to populate this." : ""}
+          No report loaded yet. Add a weekly report to populate this.
         </p>
       ) : (
         <>

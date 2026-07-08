@@ -26,7 +26,12 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   const user = await getCurrentUser();
   const staff = isStaff(user);
   const client = user?.role === "client_viewer";
-  const back = client ? { href: "/client/library", label: "← Content" } : { href: "/ideas", label: "← Ideas" };
+  const creator = user?.role === "creator";
+  const back = client
+    ? { href: "/client/library", label: "← Content" }
+    : creator
+      ? { href: "/queue", label: "← My Queue" }
+      : { href: "/ideas", label: "← Ideas" };
   const supabase = await createClient();
 
   const { data: creative } = await supabase
@@ -84,7 +89,14 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
     concept_families: { name: string; compliance_note: string | null } | { name: string; compliance_note: string | null }[] | null;
   }).concept_families;
   const family = Array.isArray(famRaw) ? famRaw[0] ?? null : famRaw;
-  const compliance = creative.compliance_note || family?.compliance_note;
+  // Family-level compliance notes carry internal agency context; only the
+  // per-concept note is production guidance the creator should see. Clients
+  // get neither — compliance framing is internal.
+  const compliance = staff
+    ? creative.compliance_note || family?.compliance_note
+    : creator
+      ? creative.compliance_note
+      : null;
 
   return (
     <main className="mx-auto max-w-6xl p-6 pb-24">
@@ -113,10 +125,15 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
         {/* LEFT — the meaning */}
         <div className="flex min-w-0 flex-col gap-[22px]">
           <section className="rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.06] p-6">
-            <div className="font-mono text-[11px] tracking-[0.12em] text-emerald-300">WHAT WE&apos;RE TESTING</div>
-            <p className="mt-3 text-[21px] font-semibold leading-snug tracking-tight text-gray-100">
-              {creative.hypothesis || "No hypothesis yet — state in one sentence what this creative is testing and why you expect it to work."}
-            </p>
+            {!client && (
+              <>
+                <div className="font-mono text-[11px] tracking-[0.12em] text-emerald-300">WHAT WE&apos;RE TESTING</div>
+                <p className="mt-3 text-[21px] font-semibold leading-snug tracking-tight text-gray-100">
+                  {creative.hypothesis || "No hypothesis yet — state in one sentence what this creative is testing and why you expect it to work."}
+                </p>
+              </>
+            )}
+            {client && <div className="font-mono text-[11px] tracking-[0.12em] text-emerald-300">CONCEPT</div>}
             <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-[11px] border border-white/[0.07] bg-white/[0.07]">
               <Cell label="Angle" value={creative.hook_angle} />
               <Cell label="Audience" value={creative.archetype} />
@@ -150,10 +167,10 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
                 {videos.map((v) => <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} canDelete={staff} transcript={v.transcript} transcriptStatus={v.transcriptStatus} />)}
               </div>
             )}
-            {staff && <div className="mt-3"><VideoUploader creativeId={creative.id} /></div>}
+            {(staff || creator) && <div className="mt-3"><VideoUploader creativeId={creative.id} /></div>}
           </div>
 
-          <PerformancePanel perf={(perf as unknown as CreativePerf) ?? null} targetCents={creative.cpt_target_cents ?? defaultTargetCents()} />
+          {!creator && <PerformancePanel perf={(perf as unknown as CreativePerf) ?? null} targetCents={creative.cpt_target_cents ?? defaultTargetCents()} />}
 
           <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
             <div className="mb-3 font-mono text-[11px] uppercase tracking-wide text-white/45">Production spec</div>
@@ -228,7 +245,7 @@ function PerformancePanel({ perf, targetCents }: { perf: CreativePerf | null; ta
         )}
       </div>
       {!hasData ? (
-        <p className="text-[12.5px] text-white/40">No data yet — joins back from the Meta import once live.</p>
+        <p className="text-[12.5px] text-white/40">No data yet — numbers appear once this ad shows up in a weekly report.</p>
       ) : (
         <div className="grid grid-cols-2 gap-2.5">
           <Metric label="Spend" value={usd(perf!.spend)} />

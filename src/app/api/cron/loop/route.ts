@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthorizedCron } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateLearnings } from "@/lib/loop/generate";
 
@@ -10,11 +11,10 @@ export const maxDuration = 300;
 // Secured by CRON_SECRET: Vercel sends `Authorization: Bearer <CRON_SECRET>`
 // on cron runs.
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
+  if (!process.env.CRON_SECRET) {
     return NextResponse.json({ error: "Cron not configured (set CRON_SECRET)." }, { status: 503 });
   }
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!isAuthorizedCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

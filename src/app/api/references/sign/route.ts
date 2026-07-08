@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createSignedReferenceUpload } from "@/lib/storage";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Allow-list for reference uploads. Keep in sync with migration
 // 0008_references_mime.sql (the bucket enforces the same set). image/svg+xml is
 // intentionally excluded — it can carry script and is served inline.
@@ -49,6 +51,9 @@ export async function POST(req: Request) {
     );
   }
 
+  if (!UUID_RE.test(String(conceptId))) {
+    return NextResponse.json({ error: "Invalid conceptId" }, { status: 400 });
+  }
   const safe = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
   const path = `${conceptId}/${Date.now()}_${safe}`;
   try {

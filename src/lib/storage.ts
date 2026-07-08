@@ -2,7 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const BUCKET = process.env.SUPABASE_VIDEO_BUCKET || "creative-videos";
 
-// Build a stable, collision-resistant key: <creativeId>/<version>/<filename>
+// Build a collision-proof key: <creativeId>/<version>/<uid>_<filename>.
+// The short uid means re-submitting "v1" of the same file never collides with
+// the existing object (signed uploads refuse to overwrite).
 export function buildStoragePath(
   creativeId: string,
   versionLabel: string,
@@ -10,7 +12,8 @@ export function buildStoragePath(
 ): string {
   const safeVersion = versionLabel.replace(/[^a-zA-Z0-9_.-]/g, "_");
   const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
-  return `${creativeId}/${safeVersion}/${safeName}`;
+  const uid = crypto.randomUUID().slice(0, 8);
+  return `${creativeId}/${safeVersion}/${uid}_${safeName}`;
 }
 
 // Editor flow: mint a one-time signed URL the browser uploads straight to.
@@ -24,7 +27,7 @@ export async function createSignedUpload(path: string) {
 }
 
 // Partner flow: mint a time-limited download URL that forces the original file
-// to download (Content-Disposition: attachment) so it can be uploaded to Meta.
+// to download (Content-Disposition: attachment) for hand-off to the ad platform.
 export async function createSignedDownload(
   path: string,
   fileName: string,

@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import IdeasList, { type IdeaRow } from "@/components/IdeasList";
@@ -26,8 +25,7 @@ function fam(f: Row["concept_families"]): string | null {
 }
 
 export default async function IdeasPage() {
-  const user = await getCurrentUser();
-  if (user?.role === "creator") redirect("/queue");
+  await requireStaff();
 
   const supabase = await createClient();
   const [{ data }, { data: perf }, { data: vids }, { data: delivs }] = await Promise.all([

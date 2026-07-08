@@ -22,6 +22,7 @@ function one<T>(v: T | T[] | null): T | null {
 export default async function QueuePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (user.role === "client_viewer") redirect("/client");
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -95,7 +96,7 @@ export default async function QueuePage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <DeliverableStatusSelect id={r.id} value={r.production_status} />
+                  <DeliverableStatusSelect id={r.id} value={r.production_status} creator={user.role === "creator"} />
                   <Link href={`/creatives/${r.concept_id}`} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10">
                     Open brief
                   </Link>
