@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText } from "@/lib/loop/rubric";
 import { insertNextScriptVersion } from "@/lib/scripts";
+import { getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
+import { getGoldenExamples } from "@/lib/loop/golden";
+import { getBadExamples, badExampleLine } from "@/lib/loop/bad";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -39,7 +42,7 @@ export async function POST(
   const { data: c } = await supabase
     .from("creatives")
     .select(
-      "hook_line, hypothesis, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)",
+      "org_id, hook_line, hypothesis, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)",
     )
     .eq("id", conceptId)
     .single();
@@ -49,17 +52,41 @@ export async function POST(
   const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
   const clientName = org?.display_name ?? "the client";
 
-  // Ground the writer in what's actually winning (proven graduates).
-  const { data: winners } = await supabase
-    .from("creative_metrics")
-    .select("ad_name, cpa")
-    .eq("verdict", "GRADUATE")
-    .order("cpa", { ascending: true })
-    .limit(5);
+  // Ground the writer in the SAME loop stores that Ideate uses — the winning
+  // scripts (golden set), proven performers (winners cache), and the patterns
+  // to avoid (bad-example store) — so both "winner" notions converge on one
+  // source. The report's GRADUATE list is kept only as a cold-start fallback
+  // for a brand-new org whose stores haven't populated yet.
+  const orgId = c.org_id as string;
+  const [golden, cache, bad, gradFallback] = await Promise.all([
+    getGoldenExamples(supabase, orgId, 5),
+    getCachedWinners(supabase, orgId, 5),
+    getBadExamples(supabase, orgId, 5),
+    supabase
+      .from("creative_metrics")
+      .select("ad_name, cpa")
+      .eq("verdict", "GRADUATE")
+      .order("cpa", { ascending: true })
+      .limit(5),
+  ]);
+
+  const goldenBlock = golden.examples.length
+    ? `PROVEN WINNING SCRIPTS (study the pattern — don't copy verbatim):\n${golden.examples
+        .map((g) => `- "${g.dimensions?.hook_line ?? "?"}" (${g.dimensions?.family ?? "?"}) — ${g.why_it_won}\n  ${g.script.slice(0, 220)}`)
+        .join("\n")}`
+    : "";
+  const winnersBlock = !cache.error && cache.winners.length
+    ? `TOP PERFORMERS (proven — Hit + volume-gated):\n${cache.winners.map(winnerLine).join("\n")}`
+    : "";
+  const avoidBlock = bad.examples.length
+    ? `AVOID THESE PATTERNS (proven losers, killed content, and compliance rejections):\n${bad.examples.map(badExampleLine).join("\n")}`
+    : "";
+  const grounded = [goldenBlock, winnersBlock, avoidBlock].filter(Boolean).join("\n\n");
   const winningText =
-    (winners ?? [])
+    grounded ||
+    ((gradFallback.data ?? [])
       .map((w) => `- ${shortName(w.ad_name)}${w.cpa != null ? ` · CPA $${Number(w.cpa).toFixed(2)}` : ""}`)
-      .join("\n") || "(no graduates yet — lean on the hypothesis)";
+      .join("\n") || "(no proven winners yet — lean on the hypothesis)");
 
   const context = [
     `Family: ${fam?.name ?? "—"}`,
@@ -83,7 +110,7 @@ Match this shape and voice — a sharp friend putting them on game, talking TO t
 
 Non-negotiables to bake into the brief: wins are always the outcome of research, never luck; never frame it as picks, locks, or guaranteed wins — it's about smarter research. Close with the concept's CTA${c.cta ? ` ("${c.cta}")` : ""} as the sign-off.
 
-Lean on what's already working (below) for the angle, but don't copy a specific ad:
+Lean on what's already working (below) for the angle, and steer clear of the patterns that lost — but don't copy any specific ad:
 ${winningText}
 
 This brief should still respect the same quality bar the finished piece is judged on:
