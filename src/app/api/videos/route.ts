@@ -71,6 +71,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const org = searchParams.get("org");
+  if (!org) return NextResponse.json({ error: "org is required" }, { status: 400 });
 
   const supabase = await createClient();
   let q = supabase
@@ -78,8 +79,8 @@ export async function GET(req: Request) {
     .select("id, file_name, transcript, transcribed_at, creatives!inner(id, hook_line, ad_name, org_id)")
     .not("transcript", "is", null)
     .order("transcribed_at", { ascending: false })
-    .limit(12);
-  if (org) q = q.eq("creatives.org_id", org);
+    .limit(12)
+    .eq("creatives.org_id", org);
 
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

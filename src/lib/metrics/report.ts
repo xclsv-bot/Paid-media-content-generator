@@ -47,7 +47,8 @@ const HEADER_ALIASES: Record<string, Field> = {
 };
 
 const RATIO_FIELDS = new Set<Field>(["ctr", "icvr", "scvr"]);
-const NUMBER_FIELDS = new Set<Field>([
+export const REPORT_VERDICTS: ReadonlySet<string> = new Set(["GRADUATE", "KEEP_TESTING", "KILL"]);
+export const NUMBER_FIELDS = new Set<Field>([
   "spend", "conversions", "cpa", "ctr", "bau_cpa", "cpm", "cpi", "cps", "icvr", "scvr", "aov", "roas",
 ]);
 

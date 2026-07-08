@@ -57,18 +57,16 @@ export async function POST(
     .select("ad_name")
     .eq("org_id", (c as { org_id?: string }).org_id ?? "")
     .not("ad_name", "is", null);
-  const nameList = [...new Set((orgNames ?? []).map((n) => n.ad_name as string))];
-  const { data: winners } = nameList.length
-    ? await supabase
-        .from("creative_metrics")
-        .select("ad_name, cpa")
-        .eq("verdict", "GRADUATE")
-        .in("ad_name", nameList)
-        .order("cpa", { ascending: true })
-        .limit(5)
-    : { data: [] };
+  const nameSet = new Set((orgNames ?? []).map((n) => n.ad_name as string));
+  const { data: graduates } = await supabase
+    .from("creative_metrics")
+    .select("ad_name, cpa")
+    .eq("verdict", "GRADUATE")
+    .order("cpa", { ascending: true })
+    .limit(50);
+  const winners = (graduates ?? []).filter((w) => nameSet.has(w.ad_name)).slice(0, 5);
   const winningText =
-    (winners ?? [])
+    winners
       .map((w) => `- ${shortName(w.ad_name)}${w.cpa != null ? ` · CPA $${Number(w.cpa).toFixed(2)}` : ""}`)
       .join("\n") || "(no graduates yet — lean on the hypothesis)";
 

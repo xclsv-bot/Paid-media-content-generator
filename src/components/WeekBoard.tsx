@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { fmtDay } from "@/lib/client/format";
 
 export type Cycle = {
   id: string;
@@ -30,7 +31,7 @@ export type Person = { id: string; name: string | null; role: string };
 export type Available = { id: string; sheet_id: string | null; hook_line: string | null; family: string | null };
 export type Organization = { id: string; slug: string; display_name: string };
 
-const PROD_STATUSES = ["Assigned", "In production", "Submitted", "In revision", "Approved", "Delivered"];
+import { PROD_STATUSES } from "@/lib/deliverables";
 const STATUS_STYLE: Record<string, string> = {
   Assigned: "text-white/60",
   "In production": "text-sky-300",
@@ -90,7 +91,7 @@ export default function WeekBoard({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Couldn't create the cycle");
       setShowNew(false);
-      router.push(`/this-week?cycle=${json.cycle.id}`);
+      if (json.cycle?.id) router.push(`/this-week?cycle=${json.cycle.id}`);
       router.refresh();
     } catch (e) {
       setNewCycleErr(e instanceof Error ? e.message : "Couldn't create the cycle");
@@ -337,11 +338,6 @@ export default function WeekBoard({
       </div>
     </div>
   );
-}
-
-function fmtDay(iso: string): string {
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? iso : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function NewCycleForm({

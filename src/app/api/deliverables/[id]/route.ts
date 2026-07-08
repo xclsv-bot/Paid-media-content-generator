@@ -2,19 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
-const STATUSES = [
-  "Assigned",
-  "In production",
-  "Submitted",
-  "In revision",
-  "Approved",
-  "Delivered",
-];
-
-// Approving a cut and publishing it to the client are staff calls. A creator
-// moves work between the production states only — "Delivered" is what the
-// client-portal RLS keys on, so letting a creator set it would self-publish.
-const CREATOR_STATUSES = ["In production", "Submitted", "In revision"];
+import { CREATOR_STATUSES, PROD_STATUSES } from "@/lib/deliverables";
 
 // PATCH /api/deliverables/:id  { assignee_id?, due_date?, production_status? }
 // Staff edit any field. A creator may change only production_status on their own
@@ -38,7 +26,7 @@ export async function PATCH(
     if ("due_date" in body) patch.due_date = body.due_date || null;
   }
   if ("production_status" in body) {
-    const allowed = staff ? STATUSES : CREATOR_STATUSES;
+    const allowed = staff ? PROD_STATUSES : CREATOR_STATUSES;
     if (!allowed.includes(body.production_status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }

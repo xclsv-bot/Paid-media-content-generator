@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import type { ReportRow } from "@/lib/metrics/report";
+import { NUMBER_FIELDS, REPORT_VERDICTS, type ReportRow } from "@/lib/metrics/report";
 
-const VERDICTS = new Set(["GRADUATE", "KEEP_TESTING", "KILL"]);
-const NUM_FIELDS = [
-  "spend", "conversions", "cpa", "ctr", "bau_cpa", "cpm", "cpi", "cps", "icvr", "scvr", "aov", "roas",
-] as const;
 const MAX_ROWS = 500;
 
 // POST /api/metrics  { rows: ReportRow[] }
@@ -32,7 +28,7 @@ export async function POST(req: Request) {
     if (!r || typeof r.ad_name !== "string" || !r.ad_name.trim()) {
       return NextResponse.json({ error: "Every row needs an ad_name." }, { status: 400 });
     }
-    if (r.verdict != null && !VERDICTS.has(r.verdict)) {
+    if (r.verdict != null && !REPORT_VERDICTS.has(r.verdict)) {
       return NextResponse.json({ error: `Invalid verdict "${r.verdict}".` }, { status: 400 });
     }
     const row: Record<string, unknown> = {
@@ -42,22 +38,29 @@ export async function POST(req: Request) {
       verdict: r.verdict ?? null,
       reason: typeof r.reason === "string" ? r.reason : null,
     };
-    for (const f of NUM_FIELDS) {
-      const v = r[f];
+    for (const f of NUMBER_FIELDS) {
+      const v = r[f as keyof ReportRow];
       row[f] = typeof v === "number" && Number.isFinite(v) ? v : null;
     }
     clean.push(row);
   }
 
+  // Dedupe on the conflict key (last wins) — Postgres refuses an upsert batch
+  // that touches the same (ad_name, flight_label) twice. The UI parser already
+  // dedupes; this covers direct API callers.
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const row of clean) byKey.set(`${row.ad_name}\u0000${row.flight_label}`, row);
+  const deduped = [...byKey.values()];
+
   // Session client: cm_staff_all RLS authorizes the write, no service role.
   const supabase = await createClient();
   const { error } = await supabase
     .from("creative_metrics")
-    .upsert(clean, { onConflict: "ad_name,flight_label" });
+    .upsert(deduped, { onConflict: "ad_name,flight_label" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Which of these names actually join to a concept?
-  const names = [...new Set(clean.map((r) => r.ad_name as string))];
+  const names = [...new Set(deduped.map((r) => r.ad_name as string))];
   const { data: matched } = await supabase
     .from("creatives")
     .select("ad_name")
@@ -66,7 +69,7 @@ export async function POST(req: Request) {
   const unmatched = names.filter((n) => !matchedSet.has(n));
 
   return NextResponse.json({
-    imported: clean.length,
+    imported: deduped.length,
     matched: names.length - unmatched.length,
     unmatched,
   });

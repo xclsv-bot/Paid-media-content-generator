@@ -40,13 +40,16 @@ export function isStaff(u: AppUser | null): boolean {
   return !!u && !!u.organizations?.is_agency && (u.role === "admin" || u.role === "editor");
 }
 
-// Where each role lands after login (and where non-staff get bounced when they
-// hit an internal page). Keep in sync with src/app/page.tsx.
+// Where each role lands after login (and where non-staff get bounced when
+// they hit an internal page). /ideas is returned ONLY for actual staff —
+// an admin/editor whose org isn't the agency (misconfigured account) gets
+// the client portal instead of bouncing /ideas → requireStaff → /ideas
+// forever.
 export function homeFor(u: AppUser | null): string {
   if (!u) return "/login";
   if (u.role === "creator") return "/queue";
-  if (u.role === "client_viewer") return "/client";
-  return "/ideas";
+  if (isStaff(u)) return "/ideas";
+  return "/client";
 }
 
 // Page guard for staff-only surfaces: anyone else is sent to their own home

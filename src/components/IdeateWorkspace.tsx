@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fetchJson } from "@/lib/http";
+import { composeAdName } from "@/lib/client/categorize";
 import { createClient } from "@/lib/supabase/client";
 
 const REF_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_REFERENCES_BUCKET || "references";
@@ -23,14 +24,6 @@ type Concept = {
   _added?: boolean;
 };
 
-// XCLSV _ XCLSV _ Sport _ Format _ Talent _ Theme _ MMDD — the ad name is how
-// the weekly report joins back to this concept, so every ideated concept gets
-// one at creation (matches ConceptForm's builder).
-function composeAdName(c: Concept): string {
-  const d = new Date();
-  const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  return ["XCLSV", "XCLSV", c.sport?.trim() || "All", c.format || "Video", c.talent || "NoFace", c.theme || "Information", mmdd].join(" _ ");
-}
 type Msg = { role: "user" | "ai"; text: string; concepts?: Concept[] };
 type Source = { type: string; name: string; note?: string };
 
@@ -185,7 +178,7 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
         sport: c.sport,
         feature_pillar: c.feature,
         format: c.format || null,
-        ad_name: composeAdName(c),
+        ad_name: composeAdName({ sport: c.sport, format: c.format, talent: c.talent, theme: c.theme }),
         idea_status: "Backlog",
         add_to_cycle: toCycle,
       }),

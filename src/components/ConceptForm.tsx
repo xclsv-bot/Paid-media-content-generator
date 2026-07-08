@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { adNameDateToken, composeAdName } from "@/lib/client/categorize";
 
 export type ConceptFields = {
   org_id: string;
@@ -55,10 +56,7 @@ export default function ConceptForm({
 
   // Auto-generate the ad name from the client's convention:
   // XCLSV _ XCLSV _ Sport _ Format _ Talent _ Theme _ Date
-  const todayToken = () => {
-    const d = new Date();
-    return `${d.getMonth() + 1}.${d.getDate()}.${String(d.getFullYear()).slice(2)}`;
-  };
+  const todayToken = () => adNameDateToken();
   const [showBuilder, setShowBuilder] = useState(false);
   const [b, setB] = useState({
     sport: initial?.sport ?? "",
@@ -69,9 +67,8 @@ export default function ConceptForm({
   });
   const setBuild = (k: keyof typeof b) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setB({ ...b, [k]: e.target.value });
-  function composeAdName() {
-    const parts = ["XCLSV", "XCLSV", b.sport.trim() || "All", b.format, b.talent, b.theme, b.date.trim()].filter(Boolean);
-    setF((prev) => ({ ...prev, ad_name: parts.join(" _ ") }));
+  function buildAdName() {
+    setF((prev) => ({ ...prev, ad_name: composeAdName({ sport: b.sport, format: b.format, talent: b.talent, theme: b.theme, date: b.date }) }));
   }
 
   async function submit() {
@@ -134,7 +131,7 @@ export default function ConceptForm({
               <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Theme</span><select className={miniField} value={b.theme} onChange={setBuild("theme")}>{CONV_THEMES.map((x) => <option key={x}>{x}</option>)}</select></label>
               <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Date</span><input className={miniField} value={b.date} onChange={setBuild("date")} placeholder="6.25.26" /></label>
             </div>
-            <button type="button" onClick={composeAdName} className="mt-2 w-fit rounded-lg bg-violet-500/90 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-violet-500">
+            <button type="button" onClick={buildAdName} className="mt-2 w-fit rounded-lg bg-violet-500/90 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-violet-500">
               Compose ad name
             </button>
           </div>
