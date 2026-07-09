@@ -32,11 +32,12 @@ type Metric = {
   roas: number | null;
 };
 
-const VERDICTS = ["GRADUATE", "KEEP_TESTING", "KILL"] as const;
-const VERDICT_LABEL: Record<string, string> = { GRADUATE: "Graduated", KEEP_TESTING: "Keep testing", KILL: "Killed" };
+const VERDICTS = ["GRADUATE", "ITERATE", "KEEP_TESTING", "KILL"] as const;
+const VERDICT_LABEL: Record<string, string> = { GRADUATE: "Graduated", ITERATE: "Iterate", KEEP_TESTING: "Keep testing", KILL: "Stopped" };
 const VERDICT_PILL: Record<string, string> = {
   GRADUATE: "bg-emerald-500/15 text-emerald-300",
-  KEEP_TESTING: "bg-amber-500/15 text-amber-300",
+  ITERATE: "bg-orange-500/15 text-orange-300",
+  KEEP_TESTING: "bg-sky-500/15 text-sky-300",
   KILL: "bg-red-500/15 text-red-300",
 };
 const VERDICT_BAR: Record<string, string> = {
