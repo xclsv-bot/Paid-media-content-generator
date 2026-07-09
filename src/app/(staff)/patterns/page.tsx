@@ -1,13 +1,11 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import CrossClientPatternsPanel, { type PatternRow } from "@/components/CrossClientPatternsPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function PatternsPage() {
-  const user = await getCurrentUser();
-  if (!isStaff(user)) redirect("/ideas");
+  await requireStaff();
 
   const supabase = await createClient();
   const [{ data: patterns }, { data: organizations }] = await Promise.all([

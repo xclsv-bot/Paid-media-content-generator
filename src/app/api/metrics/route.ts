@@ -1,141 +1,134 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { isAuthorizedAgent } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { NUMBER_FIELDS, REPORT_VERDICTS, type ReportRow } from "@/lib/metrics/report";
 import { defaultTargetCents } from "@/lib/metrics/perf";
-import { deriveVerdict, isVerdict, type Verdict, type VerdictSource } from "@/lib/metrics/verdict";
+import { deriveVerdict, type Verdict, type VerdictSource } from "@/lib/metrics/verdict";
 import { refreshAll } from "@/lib/loop/refresh";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
+const MAX_ROWS = 500;
 
-// POST /api/metrics — record (or update) one performance row for an ad name,
-// then immediately rebuild the loop's example stores so the winners cache /
-// golden set / bad-example store reflect it AT ONCE — not next-day. This is
-// the interaction that curates: staff records a CPA or picks a verdict, and
-// the stores that ground Ideate + script generation update behind the scenes.
-// No dedicated curation screen — the entry IS the curation.
+// POST /api/metrics  { rows: ReportRow[] }
+// Bulk-ingest the team's weekly report; rows upsert into creative_metrics keyed
+// on (ad_name, flight_label), then the loop's example stores rebuild ONCE so a
+// single import lights up the winners cache / golden set / bad-example store —
+// not next-day. Responds with which ad names matched a concept (an unmatched
+// name is almost always a naming-convention typo) plus the refresh result.
 //
-// creative_metrics is keyed (ad_name, flight_label); creative_performance is a
-// view over it joined to creatives by ad_name, so this single write feeds both
-// the /performance report and refreshAll(). Staff only (route gate + cm_staff_all
-// RLS on the user-scoped client); the refresh runs on the service-role client.
+// A row's verdict, when present, is the paid team's call (verdict_source
+// 'report'); a blank verdict is derived from the row's numbers, unless the row
+// already carries a human/report verdict, which is preserved.
 //
-// PARTIAL by key: a field absent from the body keeps its existing value, so a
-// verdict-only patch (the /performance inline select) never wipes the metrics,
-// and a metrics-only save never disturbs the verdict. `null` explicitly clears.
-//
-// Verdict provenance (verdict_source):
-//   • an explicit Verdict in the body  → 'user'  (staff override wins)
-//   • verdict === 'AUTO'               → 'auto'  (derive from the row's numbers)
-//   • verdict absent (metrics-only)    → keep an existing user/report verdict;
-//                                         otherwise derive → 'auto'
-// so a metrics-only update never silently clobbers a human/report decision.
-
-type Body = {
-  ad_name?: string;
-  flight_label?: string;
-  flight_start?: string | null;
-  spend?: number | null;
-  conversions?: number | null;
-  cpa?: number | null;
-  ctr?: number | null;
-  bau_cpa?: number | null;
-  reason?: string | null;
-  verdict?: string | null; // a Verdict, the sentinel 'AUTO', or absent
-};
-
-const numOrNull = (v: unknown): number | null => {
-  if (v == null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
+// Staff session OR the script agent (AGENT_API_KEY); writes on the service-role
+// client so the agent path isn't blocked by RLS.
 export async function POST(req: Request) {
   const user = await getCurrentUser();
-  if (!isStaff(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  const body = (await req.json().catch(() => ({}))) as Body;
-  const adName = body.ad_name?.trim();
-  if (!adName) return NextResponse.json({ error: "ad_name is required" }, { status: 400 });
-  const flightLabel = body.flight_label?.trim() || "default";
-  const has = (k: keyof Body) => Object.prototype.hasOwnProperty.call(body, k);
-
-  const supabase = await createClient();
-
-  // The existing row for this (ad_name, flight_label). Omitted fields fall back
-  // to it, so a partial patch preserves everything it doesn't mention.
-  const { data: existing } = await supabase
-    .from("creative_metrics")
-    .select("flight_start, spend, conversions, cpa, ctr, bau_cpa, reason, verdict, verdict_source")
-    .eq("ad_name", adName)
-    .eq("flight_label", flightLabel)
-    .maybeSingle();
-
-  // Merge: explicit body value wins (including explicit null); else keep existing.
-  const merge = (k: keyof Body, cur: unknown): number | null =>
-    has(k) ? numOrNull(body[k]) : numOrNull(cur);
-  const spend = merge("spend", existing?.spend);
-  const conversions = merge("conversions", existing?.conversions);
-  const ctr = merge("ctr", existing?.ctr);
-  const bauCpa = merge("bau_cpa", existing?.bau_cpa);
-  // CPA: explicit wins; else derive from spend/conversions; else keep existing.
-  const cpa = has("cpa")
-    ? numOrNull(body.cpa)
-    : spend != null && conversions && conversions > 0
-      ? spend / conversions
-      : (existing?.cpa ?? null);
-  const flightStart = has("flight_start") ? (body.flight_start ?? null) : (existing?.flight_start ?? null);
-  const reason = has("reason") ? (body.reason?.trim() || null) : (existing?.reason ?? null);
-
-  // Resolve the verdict + its provenance from the EFFECTIVE (merged) numbers.
-  let verdict: Verdict | null;
-  let verdictSource: VerdictSource;
-  if (isVerdict(body.verdict)) {
-    verdict = body.verdict;
-    verdictSource = "user";
-  } else if (!has("verdict") || body.verdict === "AUTO" || body.verdict == null || body.verdict === "") {
-    const explicitAuto = body.verdict === "AUTO";
-    const hasHumanVerdict = existing?.verdict != null && (existing.verdict_source === "user" || existing.verdict_source === "report");
-    if (!explicitAuto && hasHumanVerdict) {
-      // Metrics-only update: leave the human/report verdict untouched.
-      verdict = existing!.verdict as Verdict;
-      verdictSource = existing!.verdict_source as VerdictSource;
-    } else {
-      verdict = deriveVerdict(
-        { spend: spend ?? 0, results: conversions ?? 0, cpt: cpa, ctr, firstDate: flightStart },
-        defaultTargetCents(),
-      );
-      verdictSource = "auto";
-    }
-  } else {
-    return NextResponse.json({ error: "verdict must be GRADUATE, KEEP_TESTING, KILL, or AUTO" }, { status: 400 });
+  if (!isStaff(user) && !isAuthorizedAgent(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const row = {
-    ad_name: adName,
-    flight_label: flightLabel,
-    flight_start: flightStart,
-    spend,
-    conversions,
-    cpa,
-    ctr,
-    bau_cpa: bauCpa,
-    reason,
-    verdict,
-    verdict_source: verdictSource,
-  };
+  const body = await req.json().catch(() => null);
+  const rows = body?.rows;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return NextResponse.json({ error: "rows is required" }, { status: 400 });
+  }
+  if (rows.length > MAX_ROWS) {
+    return NextResponse.json({ error: `Too many rows (max ${MAX_ROWS} per import).` }, { status: 400 });
+  }
 
-  const { data: metric, error } = await supabase
+  const clean: Record<string, unknown>[] = [];
+  for (const r of rows as ReportRow[]) {
+    if (!r || typeof r.ad_name !== "string" || !r.ad_name.trim()) {
+      return NextResponse.json({ error: "Every row needs an ad_name." }, { status: 400 });
+    }
+    if (r.verdict != null && !REPORT_VERDICTS.has(r.verdict)) {
+      return NextResponse.json({ error: `Invalid verdict "${r.verdict}".` }, { status: 400 });
+    }
+    const row: Record<string, unknown> = {
+      ad_name: r.ad_name.trim(),
+      flight_label: typeof r.flight_label === "string" && r.flight_label.trim() ? r.flight_label.trim() : "default",
+      flight_start: typeof r.flight_start === "string" ? r.flight_start : null,
+      verdict: r.verdict ?? null,
+      reason: typeof r.reason === "string" ? r.reason : null,
+    };
+    for (const f of NUMBER_FIELDS) {
+      const v = r[f as keyof ReportRow];
+      row[f] = typeof v === "number" && Number.isFinite(v) ? v : null;
+    }
+    clean.push(row);
+  }
+
+  // Dedupe on the conflict key (last wins) — Postgres refuses an upsert batch
+  // that touches the same (ad_name, flight_label) twice. The UI parser already
+  // dedupes; this covers direct API callers.
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const row of clean) byKey.set(`${row.ad_name}\u0000${row.flight_label}`, row);
+  const deduped = [...byKey.values()];
+
+  // Staff session already authorized via RLS, but the agent path has no session,
+  // and refreshAll needs the service role regardless — do it all on admin.
+  const admin = createAdminClient();
+
+  // Existing verdicts for the batch keys, so a blank cell preserves a prior
+  // human/report call instead of silently deriving over it.
+  const target = defaultTargetCents();
+  const names = [...new Set(deduped.map((r) => r.ad_name as string))];
+  const { data: existingRows } = await admin
     .from("creative_metrics")
-    .upsert(row, { onConflict: "ad_name,flight_label" })
-    .select("ad_name, flight_label, spend, conversions, cpa, ctr, verdict, verdict_source")
-    .single();
+    .select("ad_name, flight_label, verdict, verdict_source")
+    .in("ad_name", names);
+  const existing = new Map<string, { verdict: string | null; verdict_source: string | null }>();
+  for (const r of existingRows ?? []) existing.set(`${r.ad_name}\u0000${r.flight_label}`, r);
+
+  for (const row of deduped) {
+    let verdict: Verdict | null;
+    let verdictSource: VerdictSource;
+    const raw = row.verdict as Verdict | null;
+    if (raw != null) {
+      verdict = raw;
+      verdictSource = "report";
+    } else {
+      const prior = existing.get(`${row.ad_name}\u0000${row.flight_label}`);
+      if (prior?.verdict != null && (prior.verdict_source === "user" || prior.verdict_source === "report")) {
+        verdict = prior.verdict as Verdict;
+        verdictSource = prior.verdict_source as VerdictSource;
+      } else {
+        verdict = deriveVerdict(
+          {
+            spend: (row.spend as number | null) ?? 0,
+            results: (row.conversions as number | null) ?? 0,
+            cpt: (row.cpa as number | null) ?? null,
+            ctr: (row.ctr as number | null) ?? null,
+            firstDate: (row.flight_start as string | null) ?? null,
+          },
+          target,
+        );
+        verdictSource = "auto";
+      }
+    }
+    row.verdict = verdict;
+    row.verdict_source = verdictSource;
+  }
+
+  const { error } = await admin
+    .from("creative_metrics")
+    .upsert(deduped, { onConflict: "ad_name,flight_label" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Rebuild the stores now, on the service-role client (refreshAll reads all
-  // performance + calls the refresh RPCs). A refresh failure isn't fatal to the
-  // save — the row is persisted; report it so the UI can surface a soft warning.
-  const refresh = await refreshAll(createAdminClient());
+  // Which of these names actually join to a concept?
+  const { data: matched } = await admin.from("creatives").select("ad_name").in("ad_name", names);
+  const matchedSet = new Set((matched ?? []).map((m) => m.ad_name));
+  const unmatched = names.filter((n) => !matchedSet.has(n));
 
-  return NextResponse.json({ metric, refresh }, { status: 200 });
+  // Rebuild the loop's stores now that the metrics changed.
+  const refresh = await refreshAll(admin);
+
+  return NextResponse.json({
+    imported: deduped.length,
+    matched: names.length - unmatched.length,
+    unmatched,
+    refresh,
+  });
 }

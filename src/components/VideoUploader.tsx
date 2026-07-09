@@ -22,7 +22,7 @@ export default function VideoUploader({ creativeId }: { creativeId: string }) {
     }
     setBusy(true);
     try {
-      // 1) Ask the server for a one-time signed upload target (editor-only).
+      // 1) Ask the server for a one-time signed upload target (staff or assigned-creator).
       setStatus("Preparing upload…");
       const signRes = await fetch("/api/uploads/sign", {
         method: "POST",
@@ -95,7 +95,7 @@ export default function VideoUploader({ creativeId }: { creativeId: string }) {
         <button
           onClick={upload}
           disabled={busy}
-          className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black disabled:opacity-50"
+          className="rounded-lg bg-emerald-400 px-3 py-1.5 text-sm font-medium text-black disabled:opacity-50"
         >
           {busy ? "Working…" : "Upload"}
         </button>

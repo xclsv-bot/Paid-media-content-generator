@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 // GET /api/winners?sport=NFL&limit=50
-// The reusable proven-content feed. RLS scopes rows to the caller's org, so a
-// sportsbook client only ever sees its own winners. Ranked best-first by score.
+// The reusable proven-content feed for the internal Winners page. Carries
+// internal spend/score figures, so it is staff-only.
 export async function GET(req: Request) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isStaff(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const sport = searchParams.get("sport");

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { isStaff, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import WinnersRefresh from "@/components/WinnersRefresh";
 import GoldenCurationButtons from "@/components/GoldenCurationButtons";
@@ -57,7 +57,7 @@ const STATUS_BADGE: Record<GoldenRow["status"], string> = {
 };
 
 export default async function WinnersPage() {
-  const user = await getCurrentUser();
+  const user = await requireStaff();
   const staff = isStaff(user);
   const supabase = await createClient();
 
@@ -113,15 +113,15 @@ export default async function WinnersPage() {
       {rows.length === 0 && (
         <p className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
           No winners cached yet.{" "}
-          {staff ? "Import Meta performance, then Refresh cache." : ""}
+          {staff ? "Import the weekly report on Performance, then hit Refresh cache." : ""}
         </p>
       )}
 
       {[...bySport.entries()].map(([sport, list]) => (
         <section key={sport} className="mb-8">
           <h2 className="mb-2 text-lg font-medium">{sport}</h2>
-          <div className="overflow-hidden rounded-xl border border-white/10">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="bg-white/5 text-white/60">
                 <tr>
                   {staff && <th className="px-3 py-2">Org</th>}
@@ -221,7 +221,7 @@ export default async function WinnersPage() {
               const dim = b.dimensions ?? {};
               const perfBad = b.kind === "proven_loser" || b.kind === "manual_kill";
               const tag =
-                b.kind === "proven_loser" ? "proven loser" : b.kind === "manual_kill" ? "killed" : "rejected";
+                b.kind === "proven_loser" ? "proven loser" : b.kind === "manual_kill" ? "killed" : "compliance-rejected";
               return (
                 <div key={b.id} className="rounded-[12px] border border-white/10 bg-white/[0.025] p-3.5">
                   <div className="mb-1 flex flex-wrap items-center gap-2">

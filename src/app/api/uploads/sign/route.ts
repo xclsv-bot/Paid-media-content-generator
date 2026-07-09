@@ -3,6 +3,8 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { buildStoragePath, createSignedUpload } from "@/lib/storage";
 
+const ALLOWED_VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v", "webm"]);
+
 // POST /api/uploads/sign  { creativeId, fileName, versionLabel? }
 // Staff, or a creator assigned to this concept (RLS on the creative scopes it).
 // Returns a one-time signed upload target the browser uploads to.
@@ -16,6 +18,13 @@ export async function POST(req: Request) {
   if (!creativeId || !fileName) {
     return NextResponse.json(
       { error: "creativeId and fileName are required" },
+      { status: 400 },
+    );
+  }
+  const ext = String(fileName).split(".").pop()?.toLowerCase() ?? "";
+  if (!ALLOWED_VIDEO_EXTENSIONS.has(ext)) {
+    return NextResponse.json(
+      { error: `Unsupported file type ".${ext}". Allowed: MP4, MOV, M4V, WEBM.` },
       { status: 400 },
     );
   }

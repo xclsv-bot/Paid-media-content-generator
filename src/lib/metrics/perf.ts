@@ -48,6 +48,10 @@ export function rollupBy(
   targetForRow: (creativeId: string) => number | null,
 ): Rollup[] {
   const groups = new Map<string, Rollup>();
+  const ctrSum = new Map<string, number>();
+  const ctrWeight = new Map<string, number>();
+  const ctrPlainSum = new Map<string, number>();
+  const ctrPlainN = new Map<string, number>();
 
   for (const r of rows) {
     const key = r.dimension ?? "—";
@@ -60,6 +64,14 @@ export function rollupBy(
     g.impressions += r.impressions || 0;
     g.clicks += r.clicks || 0;
     g.results += r.results || 0;
+    if (r.ctr != null) {
+      ctrPlainSum.set(key, (ctrPlainSum.get(key) ?? 0) + r.ctr);
+      ctrPlainN.set(key, (ctrPlainN.get(key) ?? 0) + 1);
+      if ((r.spend || 0) > 0) {
+        ctrWeight.set(key, (ctrWeight.get(key) ?? 0) + (r.spend || 0));
+        ctrSum.set(key, (ctrSum.get(key) ?? 0) + r.ctr * (r.spend || 0));
+      }
+    }
 
     const hit = isHit(r.cpt, targetForRow(r.creative_id));
     if (hit !== null) {
@@ -70,7 +82,19 @@ export function rollupBy(
   }
 
   for (const g of groups.values()) {
-    g.ctr = g.impressions > 0 ? g.clicks / g.impressions : null;
+    // The weekly report carries CTR directly (no impressions/clicks columns),
+    // so aggregate the reported CTRs spend-weighted; fall back to clicks/
+    // impressions only if a source ever provides them.
+    const w = ctrWeight.get(g.key) ?? 0;
+    const n = ctrPlainN.get(g.key) ?? 0;
+    g.ctr =
+      w > 0
+        ? (ctrSum.get(g.key) ?? 0) / w
+        : n > 0
+          ? (ctrPlainSum.get(g.key) ?? 0) / n // zero-spend rows: plain mean
+          : g.impressions > 0
+            ? g.clicks / g.impressions
+            : null;
     g.cpt = g.results > 0 ? g.spend / g.results : null;
   }
 

@@ -26,14 +26,16 @@ export default function VideoAssetCard({
   const [deleting, setDeleting] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   async function transcribe() {
     setTranscribing(true);
+    setErr(null);
     try {
       const res = await fetch(`/api/videos/${id}/transcribe`, { method: "POST" });
       if (!res.ok) {
         const { error } = await res.json().catch(() => ({ error: "Transcription failed" }));
-        alert(error || "Transcription failed");
+        setErr(error || "Transcription failed");
       }
       router.refresh();
     } finally {
@@ -43,11 +45,16 @@ export default function VideoAssetCard({
 
   async function download() {
     setBusy(true);
+    setErr(null);
     try {
       // Server checks RLS (client is allowed) and mints an attachment URL of the
       // original master file — what the partner uploads into Meta Ads Manager.
       const res = await fetch(`/api/videos/${id}/download`);
-      if (!res.ok) throw new Error("Download failed");
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setErr(j?.error ?? "Download failed — try again.");
+        return;
+      }
       const { url } = await res.json();
       const a = document.createElement("a");
       a.href = url;
@@ -70,7 +77,7 @@ export default function VideoAssetCard({
       }
       router.refresh();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Delete failed");
+      setErr(e instanceof Error ? e.message : "Delete failed");
       setDeleting(false);
       setConfirming(false);
     }
@@ -89,6 +96,7 @@ export default function VideoAssetCard({
           preview unavailable
         </div>
       )}
+      {err && <p className="mt-2 text-xs text-red-300">{err}</p>}
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm" title={fileName}>{fileName}</div>

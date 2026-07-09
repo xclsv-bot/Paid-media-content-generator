@@ -21,12 +21,27 @@ export async function GET(
   // RLS: returns the row only if the user is allowed to see its creative.
   const { data: asset } = await supabase
     .from("video_assets")
-    .select("id, storage_path, file_name")
+    .select("id, creative_id, storage_path, file_name")
     .eq("id", id)
     .single();
 
   if (!asset) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // A client downloads masters only once the cut is actually published to
+  // them — i.e. some deliverable for this concept is Delivered. Staff and the
+  // assigned creator handle in-production files freely.
+  if (user.role === "client_viewer") {
+    const { data: delivered } = await supabase
+      .from("deliverables")
+      .select("id")
+      .eq("concept_id", asset.creative_id)
+      .eq("production_status", "Delivered")
+      .limit(1);
+    if (!delivered || delivered.length === 0) {
+      return NextResponse.json({ error: "Not available yet" }, { status: 403 });
+    }
   }
 
   try {

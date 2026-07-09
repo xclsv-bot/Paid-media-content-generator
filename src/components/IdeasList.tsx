@@ -76,7 +76,7 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
   });
 
   const sel =
-    "rounded-[10px] border border-white/10 bg-white/[0.04] px-3 py-2 text-[13.5px] text-white/90 outline-none";
+    "rounded-[10px] border border-white/10 bg-white/[0.04] px-3 py-2 text-[13.5px] text-white/90 outline-none focus-visible:border-emerald-400/50";
 
   return (
     <div>
@@ -144,6 +144,23 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
         </div>
       </div>
 
+      {filtered.length === 0 && (
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
+          {rows.length === 0 ? (
+            <>
+              <p className="text-white/60">The concept bank is empty.</p>
+              <p className="mt-1 text-sm text-white/40">Brainstorm in Ideate or create a concept by hand to get started.</p>
+              <div className="mt-4 flex justify-center gap-2">
+                <Link href="/ideate" className="rounded-lg bg-emerald-400 px-3.5 py-2 text-sm font-semibold text-black hover:bg-emerald-300">Open Ideate</Link>
+                <Link href="/concepts/new" className="rounded-lg border border-white/20 px-3.5 py-2 text-sm hover:bg-white/10">New concept</Link>
+              </div>
+            </>
+          ) : (
+            <p className="text-white/60">No concepts match these filters.</p>
+          )}
+        </div>
+      )}
+
       {view === "cards" ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(310px,1fr))]">
           {filtered.map((r) => {
@@ -155,7 +172,7 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
                 className="flex min-h-[172px] flex-col gap-3 rounded-[15px] border border-white/10 bg-white/[0.035] p-[18px] transition hover:-translate-y-0.5 hover:border-emerald-400/45 hover:bg-white/[0.055]"
               >
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-white/40">{r.sheet_id}</span>
+                  {r.sheet_id && <span className="font-mono text-[11px] text-white/40">{r.sheet_id}</span>}
                   <span className="text-[11.5px] uppercase tracking-wide text-white/50">{r.family}</span>
                   <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_PILL[r.idea_status] ?? ""}`}>
                     {r.idea_status}
@@ -177,7 +194,8 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
           })}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[12px] border border-white/10">
+        <div className="overflow-x-auto rounded-[12px] border border-white/10">
+        <div className="min-w-[880px]">
           <div className="grid grid-cols-[64px_1.4fr_2.2fr_1fr_0.9fr_120px_150px] gap-3 border-b border-white/10 bg-white/[0.04] px-4 py-2.5 font-mono text-[10.5px] uppercase tracking-wide text-white/45">
             <span>#</span><span>Family</span><span>Hook</span><span>Angle</span><span>Sport</span><span>Status</span><span>Signal</span>
           </div>
@@ -199,7 +217,7 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
                 <span className="truncate text-white/55">{r.sport}</span>
                 <span className="flex items-center gap-1.5">
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_PILL[r.idea_status] ?? ""}`}>{r.idea_status}</span>
-                  {r.in_cycle && <span className="text-sky-300" title="Scheduled into a cycle">◷</span>}
+                  {r.in_cycle && <span className="text-sky-300" role="img" aria-label="Scheduled into a cycle" title="Scheduled into a cycle">◷</span>}
                 </span>
                 <span className="flex items-center gap-2 truncate text-[12px]" style={{ color: foot.color }}>
                   <span className="h-[6px] w-[6px] flex-shrink-0 rounded-full" style={{ background: foot.color }} />
@@ -208,6 +226,7 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
               </Link>
             );
           })}
+        </div>
         </div>
       )}
     </div>

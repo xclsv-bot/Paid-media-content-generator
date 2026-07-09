@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
 import VideoAssetCard from "@/components/VideoAssetCard";
@@ -14,9 +13,7 @@ function famName(f: unknown): string | null {
 }
 
 export default async function ReviewPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  if (user.role === "creator") redirect("/queue");
+  const user = await requireStaff();
 
   const supabase = await createClient();
 

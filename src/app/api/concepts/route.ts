@@ -91,6 +91,7 @@ export async function POST(req: Request) {
       const { data: recentOpen } = await supabase
         .from("cycles")
         .select("id, label")
+        .eq("org_id", b.org_id)
         .neq("status", "Closed")
         .order("starts_on", { ascending: false })
         .limit(1)

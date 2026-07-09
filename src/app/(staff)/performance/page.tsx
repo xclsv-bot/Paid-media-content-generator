@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCurrentUser, isStaff } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { parseNamingConvention } from "@/lib/client/categorize";
@@ -8,6 +8,7 @@ import LearningsPanel from "@/components/LearningsPanel";
 import OrgPicker from "@/components/OrgPicker";
 import PromotePatternButton from "@/components/PromotePatternButton";
 import VerdictSelect from "@/components/VerdictSelect";
+import ReportImporter from "@/components/ReportImporter";
 import { VERDICTS, VERDICT_LABEL, VERDICT_BAR, type Verdict } from "@/lib/metrics/verdict";
 
 export const dynamic = "force-dynamic";
@@ -51,8 +52,7 @@ export default async function PerformancePage({
 }: {
   searchParams: Promise<{ org?: string }>;
 }) {
-  const user = await getCurrentUser();
-  const staff = isStaff(user);
+  const user = await requireStaff();
   const supabase = await createClient();
   const { org: orgParam } = await searchParams;
 
@@ -65,23 +65,30 @@ export default async function PerformancePage({
     .eq("is_agency", false)
     .order("display_name");
   const orgId =
-    (staff ? clientOrgs?.find((o) => o.slug === orgParam)?.id : undefined) ??
-    (staff ? clientOrgs?.[0]?.id : undefined) ??
-    user?.org_id ??
+    clientOrgs?.find((o) => o.slug === orgParam)?.id ??
+    clientOrgs?.[0]?.id ??
+    user.org_id ??
     null;
 
-  const [{ data: metricRows }, { data: creativeRows }, learning] = await Promise.all([
+  // creative_metrics has no org column — the ad NAME is the join — so fetch
+  // the report and scope it to this org's ad names in memory (an .in() filter
+  // with hundreds of names overruns the request URL).
+  const [{ data: creativeRows }, { data: metricRows }, learning] = await Promise.all([
+    supabase
+      .from("creatives")
+      .select("id, ad_name, hook_line")
+      .not("ad_name", "is", null)
+      .eq("org_id", orgId ?? ""),
     supabase
       .from("creative_metrics")
       .select(
         "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, verdict_source, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
       )
       .order("spend", { ascending: false, nullsFirst: false }),
-    supabase.from("creatives").select("id, ad_name, hook_line").not("ad_name", "is", null),
     orgId ? latestLearnings(supabase, orgId) : Promise.resolve(null),
   ]);
-
-  const all = (metricRows ?? []) as Metric[];
+  const orgAdNames = new Set((creativeRows ?? []).map((c) => c.ad_name as string));
+  const all = ((metricRows ?? []) as Metric[]).filter((m) => orgAdNames.has(m.ad_name));
 
   // The concept(s) behind each ad name — a name can map to more than one (same
   // creative "type"). Lets us click a graduated ad through to its brief/transcript.
@@ -138,14 +145,17 @@ export default async function PerformancePage({
             {targetDollars != null ? usd(targetDollars) : "—"}.
           </p>
         </div>
-        {staff && clientOrgs && clientOrgs.length > 1 && (
-          <OrgPicker organizations={clientOrgs} currentSlug={clientOrgs.find((o) => o.id === orgId)?.slug ?? ""} />
-        )}
+        <div className="flex items-center gap-3">
+          {clientOrgs && clientOrgs.length > 1 && (
+            <OrgPicker organizations={clientOrgs} currentSlug={clientOrgs.find((o) => o.id === orgId)?.slug ?? ""} />
+          )}
+          {orgId && <ReportImporter orgId={orgId} />}
+        </div>
       </header>
 
       {metrics.length === 0 ? (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No report loaded yet. {isStaff(user) ? "Add a weekly report to populate this." : ""}
+          No report loaded yet — click “Import weekly report” above and paste the sheet rows to light this page up.
         </p>
       ) : (
         <>
@@ -211,7 +221,7 @@ export default async function PerformancePage({
                                     flightLabel={m.flight_label}
                                     verdict={(m.verdict as Verdict | null) ?? null}
                                     source={m.verdict_source}
-                                    canEdit={staff}
+                                    canEdit
                                   />
                                 </div>
                               </td>
@@ -248,12 +258,12 @@ export default async function PerformancePage({
           {/* Agent learnings narrative */}
           {orgId && (
             <>
-              {staff && (
+              {(
                 <div className="mb-3 flex justify-end">
                   <PromotePatternButton orgId={orgId} />
                 </div>
               )}
-              <LearningsPanel learning={learning as Learning | null} canGenerate={staff} orgId={orgId} />
+              <LearningsPanel learning={learning as Learning | null} canGenerate={true} orgId={orgId} />
             </>
           )}
         </>

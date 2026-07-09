@@ -56,18 +56,14 @@ export async function POST(
   // scripts (golden set), proven performers (winners cache), and the patterns
   // to avoid (bad-example store) — so both "winner" notions converge on one
   // source. The report's GRADUATE list is kept only as a cold-start fallback
-  // for a brand-new org whose stores haven't populated yet.
-  const orgId = c.org_id as string;
-  const [golden, cache, bad, gradFallback] = await Promise.all([
+  // for a brand-new org whose stores haven't populated yet, scoped to THIS
+  // client's ad names (creative_metrics has no org column).
+  const orgId = (c as { org_id?: string }).org_id ?? "";
+  const [golden, cache, bad, { data: orgNames }] = await Promise.all([
     getGoldenExamples(supabase, orgId, 5),
     getCachedWinners(supabase, orgId, 5),
     getBadExamples(supabase, orgId, 5),
-    supabase
-      .from("creative_metrics")
-      .select("ad_name, cpa")
-      .eq("verdict", "GRADUATE")
-      .order("cpa", { ascending: true })
-      .limit(5),
+    supabase.from("creatives").select("ad_name").eq("org_id", orgId).not("ad_name", "is", null),
   ]);
 
   const goldenBlock = golden.examples.length
@@ -82,9 +78,20 @@ export async function POST(
     ? `AVOID THESE PATTERNS (proven losers, killed content, and compliance rejections):\n${bad.examples.map(badExampleLine).join("\n")}`
     : "";
   const grounded = [goldenBlock, winnersBlock, avoidBlock].filter(Boolean).join("\n\n");
+
+  // Cold-start fallback: proven graduates for THIS org only (filtered through
+  // the org's ad names, since creative_metrics isn't org-scoped).
+  const nameSet = new Set((orgNames ?? []).map((n) => n.ad_name as string));
+  const { data: graduates } = await supabase
+    .from("creative_metrics")
+    .select("ad_name, cpa")
+    .eq("verdict", "GRADUATE")
+    .order("cpa", { ascending: true })
+    .limit(50);
+  const gradWinners = (graduates ?? []).filter((w) => nameSet.has(w.ad_name)).slice(0, 5);
   const winningText =
     grounded ||
-    ((gradFallback.data ?? [])
+    (gradWinners
       .map((w) => `- ${shortName(w.ad_name)}${w.cpa != null ? ` · CPA $${Number(w.cpa).toFixed(2)}` : ""}`)
       .join("\n") || "(no proven winners yet — lean on the hypothesis)");
 

@@ -88,10 +88,10 @@ loop (GRADUATE force-includes in winners cache + golden set with a
 "graduated by paid team" reason; KILL writes an honest `manual_kill`
 bad-example that auto-prunes if the verdict flips back).
 
-1. **Migration 0024** — `verdict_source`, `manual_kill` kind +
+1. **Migration 0025** — `verdict_source`, `manual_kill` kind +
    `apply_manual_kills` RPC (service-role, mirror of `apply_bad_refresh`),
    `golden_examples.transcript`.
-2. **`/api/metrics` (POST)** — staff upsert of a metric row (spend,
+2. **`/api/metrics/record` (POST)** — staff upsert of a single metric row (spend,
    conversions, CPA, CTR, verdict) keyed `(ad_name, flight_label)`, then an
    **immediate `refreshAll()`** — stores populate the moment a CPA is
    recorded, not next-day. Surfaced as a small quick-entry on the creative
@@ -103,8 +103,8 @@ bad-example that auto-prunes if the verdict flips back).
 5. **Transcripts as signal** — the refresh snapshots the winning cut's
    transcript excerpt into each golden example; Ideate and the script writer
    quote "the winning delivery".
-6. **Sheet ingestion** — `/api/metrics/import` (JSON or CSV; staff session
-   or agent key) normalizing headers, parsing verdict labels as
+6. **Sheet ingestion** — the bulk importer at `/api/metrics` (JSON rows;
+   staff session or agent key) normalizing headers, parsing verdict labels as
    `verdict_source='report'`, reporting **unmatched ad names** (naming-drift
    made visible), one refresh at the end; plus the missing
    `scripts/import-sheet.ts` CLI so `npm run seed:sheet` is real. A cron
@@ -118,7 +118,7 @@ bad-example that auto-prunes if the verdict flips back).
   gates (10 results / $50 spend / 20 trials, `src/lib/loop/config.ts`) were
   tuned for a $30 world — revisit for $10.
 - **Jul 9 call**: get the sheet's exact column headers + a naming-convention
-  sample so `/api/metrics/import`'s header map can be confirmed, and decide
+  sample so the report parser's header map (`src/lib/metrics/report.ts`) can be confirmed, and decide
   Sheets-API-pull vs weekly CSV export.
 - Linear setup for shared task tracking came up; no repo impact.
 

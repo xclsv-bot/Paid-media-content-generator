@@ -98,7 +98,7 @@ export async function loadClientContent(supabase: SupabaseClient): Promise<Conte
   if (creatives.length === 0) return [];
   const ids = creatives.map((c) => c.id);
 
-  const [{ data: assets }, { data: perfRows }, { data: approvals }] = await Promise.all([
+  const [{ data: assets }, { data: perfRows }, { data: approvals }, { data: deliveredRows }] = await Promise.all([
     supabase
       .from("video_assets")
       .select("id, creative_id, file_name, version_label, storage_path, uploaded_at")
@@ -109,11 +109,20 @@ export async function loadClientContent(supabase: SupabaseClient): Promise<Conte
       .select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated")
       .in("creative_id", ids),
     supabase.from("approvals").select("creative_id, state").in("creative_id", ids),
+    supabase.from("deliverables").select("concept_id").eq("production_status", "Delivered").in("concept_id", ids),
   ]);
+
+  // A client streams/downloads only published cuts — same gate as the
+  // download API (a Delivered deliverable). Staff previewing the portal see
+  // everything.
+  const deliveredIds = new Set((deliveredRows ?? []).map((d: { concept_id: string }) => d.concept_id));
+  const viewer = await getCurrentUser();
+  const clientView = !isStaff(viewer);
+  const visibleAssets = (assets ?? []).filter((a) => !clientView || deliveredIds.has(a.creative_id));
 
   // Sign each asset's stream URL, grouped by creative.
   const videosByCreative = new Map<string, ContentItem["videos"]>();
-  for (const a of assets ?? []) {
+  for (const a of visibleAssets) {
     const list = videosByCreative.get(a.creative_id) ?? [];
     list.push({
       id: a.id,
