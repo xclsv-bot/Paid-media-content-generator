@@ -88,7 +88,7 @@ export default function ReportImporter({ orgId }: { orgId: string }) {
       const res = await fetch("/api/metrics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: pending.rows }),
+        body: JSON.stringify({ rows: pending.rows, org_id: orgId }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error ?? "Import failed");

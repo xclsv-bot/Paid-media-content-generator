@@ -16,6 +16,7 @@ type Metric = {
   ad_name: string;
   flight_label: string;
   flight_start: string | null;
+  created_at: string | null;
   spend: number | null;
   conversions: number | null;
   cpa: number | null;
@@ -81,9 +82,9 @@ export default async function PerformancePage({
     user.org_id ??
     null;
 
-  // creative_metrics has no org column — the ad NAME is the join — so fetch
-  // the report and scope it to this org's ad names in memory (an .in() filter
-  // with hundreds of names overruns the request URL).
+  // Report rows are stamped with their org at import (0026), so the page
+  // shows EVERYTHING imported for this client — including rows whose ad name
+  // doesn't match a concept yet (those just don't get a concept link).
   const [{ data: creativeRows }, { data: metricRows }, learning] = await Promise.all([
     supabase
       .from("creatives")
@@ -93,13 +94,13 @@ export default async function PerformancePage({
     supabase
       .from("creative_metrics")
       .select(
-        "ad_name, flight_label, flight_start, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
+        "ad_name, flight_label, flight_start, created_at, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
       )
+      .eq("org_id", orgId ?? "")
       .order("spend", { ascending: false, nullsFirst: false }),
     orgId ? latestLearnings(supabase, orgId) : Promise.resolve(null),
   ]);
-  const orgAdNames = new Set((creativeRows ?? []).map((c) => c.ad_name as string));
-  const all = ((metricRows ?? []) as Metric[]).filter((m) => orgAdNames.has(m.ad_name));
+  const all = (metricRows ?? []) as Metric[];
 
   // The concept(s) behind each ad name — a name can map to more than one (same
   // creative "type"). Lets us click a graduated ad through to its brief/transcript.
@@ -111,10 +112,13 @@ export default async function PerformancePage({
     conceptsByName.set(c.ad_name, list);
   }
 
-  // Default to the most recent flight.
+  // Default to the most recent flight. Photo imports carry no flight_start,
+  // so fall back to when the row was imported — otherwise a new week could
+  // never win against an old one that had dates.
   const flights = [...new Set(all.map((m) => m.flight_label))];
+  const recency = (m: Metric) => m.flight_start ?? m.created_at ?? "";
   const latestFlight =
-    all.reduce<Metric | null>((best, m) => (!best || (m.flight_start ?? "") > (best.flight_start ?? "") ? m : best), null)
+    all.reduce<Metric | null>((best, m) => (!best || recency(m) > recency(best) ? m : best), null)
       ?.flight_label ?? flights[0] ?? null;
   const metrics = all.filter((m) => m.flight_label === latestFlight);
 
