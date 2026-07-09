@@ -23,7 +23,7 @@ export default function PerformanceQuickEntry({ adName }: { adName: string }) {
     spend: "",
     conversions: "",
     ctr: "", // percent, e.g. 1.8 → 0.018
-    verdict: "AUTO",
+    verdict: "KEEP", // "KEEP" = leave the current verdict untouched (omit from POST)
   });
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -44,7 +44,9 @@ export default function PerformanceQuickEntry({ adName }: { adName: string }) {
           spend: form.spend.trim() === "" ? null : Number(form.spend),
           conversions: form.conversions.trim() === "" ? null : Number(form.conversions),
           ctr: ctrPct,
-          verdict: form.verdict, // "AUTO" or a Verdict
+          // omit verdict when leaving it unchanged, so a spend-only save never
+          // clobbers a paid-team verdict; the route preserves it.
+          verdict: form.verdict === "KEEP" ? undefined : form.verdict,
         }),
       });
       const body = await res.json();
@@ -96,6 +98,7 @@ export default function PerformanceQuickEntry({ adName }: { adName: string }) {
             onChange={set("verdict")}
             className="rounded-lg border border-white/10 bg-[#0e1014] px-2.5 py-1.5 text-[13px] text-white/90"
           >
+            <option value="KEEP">Leave unchanged</option>
             <option value="AUTO">Auto (from the numbers)</option>
             {VERDICTS.map((v) => (
               <option key={v} value={v}>{VERDICT_LABEL[v]}</option>

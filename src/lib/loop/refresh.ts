@@ -34,27 +34,41 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
   const perfById = new Map<string, { spend: number | null; results: number | null; cpt: number | null; ctr: number | null; first_date: string | null }>();
   for (const p of perfRows ?? []) perfById.set(p.creative_id, p);
 
-  // Latest-flight user/report verdict per ad name — the human override the loop
-  // must honor over its own gates. Rows are ordered newest flight first, so the
-  // first row seen per ad name is the current call; an 'auto' latest flight
-  // means "no override — let the gates decide" (newer data supersedes an older
-  // hand-set verdict). creative_metrics is the base table (the performance view
-  // drops the verdict); the admin client reads every org's rows.
+  // The current human override per ad name — the verdict the loop must honor
+  // over its own gates. We look ONLY at rows a human or the report explicitly
+  // set (verdict_source user/report); 'auto' rows are the gates' own opinion and
+  // never count as an override, so a fresh auto row can't silently clear a
+  // human KILL/GRADUATE. Among a name's override rows the most RECENTLY WRITTEN
+  // one wins (updated_at), independent of flight_start — quick-entry rows carry
+  // no flight date, so ordering by flight_start would wrongly rank them last.
+  // creative_metrics is the base table (the performance view drops the verdict);
+  // the admin client reads every org's rows.
   const { data: metricRows } = await admin
     .from("creative_metrics")
-    .select("ad_name, verdict, verdict_source, flight_start, created_at")
-    .order("flight_start", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-  const latestVerdict = new Map<string, "GRADUATE" | "KEEP_TESTING" | "KILL" | null>();
-  for (const m of (metricRows ?? []) as { ad_name: string; verdict: string | null; verdict_source: string | null }[]) {
-    if (latestVerdict.has(m.ad_name)) continue; // keep only the latest flight
-    const isOverride =
-      (m.verdict_source === "user" || m.verdict_source === "report") &&
-      (m.verdict === "GRADUATE" || m.verdict === "KEEP_TESTING" || m.verdict === "KILL");
-    latestVerdict.set(m.ad_name, isOverride ? (m.verdict as "GRADUATE" | "KEEP_TESTING" | "KILL") : null);
+    .select("ad_name, verdict, updated_at, flight_start")
+    .in("verdict_source", ["user", "report"])
+    .not("verdict", "is", null)
+    .order("updated_at", { ascending: false })
+    .order("flight_start", { ascending: false, nullsFirst: false });
+  const latestVerdict = new Map<string, "GRADUATE" | "KEEP_TESTING" | "KILL">();
+  for (const m of (metricRows ?? []) as { ad_name: string; verdict: string | null }[]) {
+    if (latestVerdict.has(m.ad_name)) continue; // most recently written override wins
+    if (m.verdict === "GRADUATE" || m.verdict === "KEEP_TESTING" || m.verdict === "KILL") {
+      latestVerdict.set(m.ad_name, m.verdict);
+    }
   }
 
   const fallback = defaultTargetCents();
+
+  // ad_name -> orgs that use it. creative_metrics (and thus latestVerdict) is
+  // keyed by ad_name with no org column; if two orgs share an ad_name we cannot
+  // tell whose verdict it is, so we withhold the override from ALL of them
+  // rather than risk force-curating another tenant's creative (Fix #5).
+  const orgsByAdName = new Map<string, Set<string>>();
+  for (const c of creatives ?? []) {
+    if (!c.ad_name) continue;
+    (orgsByAdName.get(c.ad_name) ?? orgsByAdName.set(c.ad_name, new Set()).get(c.ad_name)!).add(c.org_id);
+  }
   const capturedAt = new Date().toISOString();
   const now = new Date();
   const minLoserResults = loserMinResults();
@@ -80,7 +94,11 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     // curation): KILL → manual-kill bad example; GRADUATE → force-cache even
     // under-volume; KEEP_TESTING → hold (neither win nor loss). No override, or
     // an 'auto' latest flight, falls through to the gates below.
-    const override = c.ad_name ? latestVerdict.get(c.ad_name) ?? null : null;
+    // Withhold the override when the ad_name is shared across orgs (unattributable).
+    const override =
+      c.ad_name && orgsByAdName.get(c.ad_name)?.size === 1
+        ? latestVerdict.get(c.ad_name) ?? null
+        : null;
 
     if (override === "KILL") {
       manualKills.push({
@@ -202,7 +220,10 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
   // All curation-safety and gate enforcement live in the SQL functions.
   const topGolden = [...qualifiers].sort((a, b) => b.score - a.score).slice(0, goldenMax());
   const topLosers = [...losers].sort((a, b) => b.score - a.score).slice(0, badMax());
-  const topManualKills = [...manualKills].sort((a, b) => b.score - a.score).slice(0, badMax());
+  // Not capped by badMax: a manual kill is an explicit human decision, and
+  // apply_manual_kills prunes any kill absent from this list — capping would
+  // silently delete a real kill (and starve one org behind another's).
+  const topManualKills = [...manualKills].sort((a, b) => b.score - a.score);
   const scriptByConcept = new Map<string, { body: string; version: number }>();
   const scriptIds = [...new Set([...topGolden, ...topLosers, ...topManualKills].map((q) => q.creative_id))];
   if (scriptIds.length) {

@@ -22,8 +22,18 @@
 
 -- ---------- creative_metrics: verdict provenance + value check ----------
 alter table public.creative_metrics
-  add column verdict_source text not null default 'report'
+  -- Provenance of the verdict. Defaults to 'auto' so applying this migration
+  -- does NOT retroactively promote every legacy/seeded verdict row into a hard
+  -- loop override — only rows a human or the report explicitly sets are honored
+  -- over the gates. The write routes set 'user'/'report' explicitly.
+  add column verdict_source text not null default 'auto'
     check (verdict_source in ('auto', 'user', 'report'));
+
+-- updated_at bumps on every write (the routes set it), giving refreshAll a
+-- reliable recency signal for "which override is current" that is independent
+-- of flight_start (quick-entry rows carry no flight date). See src/lib/loop/refresh.ts.
+alter table public.creative_metrics
+  add column updated_at timestamptz not null default now();
 
 -- Normalize legacy/label verdict spellings to the canonical enum before
 -- constraining the value set (mirrors parseVerdictLabel in
@@ -187,7 +197,7 @@ begin
     cpt_cents      = excluded.cpt_cents,
     results        = excluded.results,
     target_cents   = excluded.target_cents,
-    transcript     = excluded.transcript,
+    transcript     = coalesce(excluded.transcript, golden_examples.transcript),
     captured_at    = now()
   where golden_examples.status = 'active';
   get diagnostics n_upserted = row_count;

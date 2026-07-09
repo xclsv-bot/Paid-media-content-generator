@@ -78,11 +78,13 @@ export async function POST(req: Request) {
   const conversions = merge("conversions", existing?.conversions);
   const ctr = merge("ctr", existing?.ctr);
   const bauCpa = merge("bau_cpa", existing?.bau_cpa);
-  // CPA: explicit wins; else derive from spend/conversions; else keep existing.
+  // CPA: explicit wins; else if THIS request set spend/conversions, recompute
+  // (null when there are no conversions — an ad that spent and converted nobody
+  // has no CPA, not a stale one); else (e.g. a verdict-only patch) keep existing.
   const cpa = has("cpa")
     ? numOrNull(body.cpa)
-    : spend != null && conversions && conversions > 0
-      ? spend / conversions
+    : has("spend") || has("conversions")
+      ? (spend != null && conversions != null && conversions > 0 ? spend / conversions : null)
       : (existing?.cpa ?? null);
   const flightStart = has("flight_start") ? (body.flight_start ?? null) : (existing?.flight_start ?? null);
   const reason = has("reason") ? (body.reason?.trim() || null) : (existing?.reason ?? null);
@@ -123,6 +125,7 @@ export async function POST(req: Request) {
     reason,
     verdict,
     verdict_source: verdictSource,
+    updated_at: new Date().toISOString(),
   };
 
   const { data: metric, error } = await supabase

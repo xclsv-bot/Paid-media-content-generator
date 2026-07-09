@@ -80,7 +80,7 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
     getCachedWinners(supabase, orgId, 5),
     getBadExamples(supabase, orgId, 5),
   ]);
-  const losers = bad.examples.filter((b) => b.kind === "proven_loser");
+  const losers = bad.examples.filter((b) => b.kind === "proven_loser" || b.kind === "manual_kill");
 
   const winnerIds = cache.winners.map((w) => w.creative_id);
   const scriptByConcept = new Map<string, string>();

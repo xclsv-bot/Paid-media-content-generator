@@ -110,6 +110,7 @@ export async function POST(req: Request) {
     }
     row.verdict = verdict;
     row.verdict_source = verdictSource;
+    row.updated_at = new Date().toISOString();
   }
 
   const { error } = await admin

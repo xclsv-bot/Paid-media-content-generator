@@ -6,9 +6,19 @@ import { loserCptMultiplier, loserMinResults } from "@/lib/loop/config";
 // own language for creative testing, so it must read identically everywhere:
 // the /performance report, the quick-entry on a creative, the sheet import,
 // and the loop. This module is the single source of truth for the values, the
-// display maps, parsing report strings, and DERIVING a verdict from the exact
-// same gates the loop stores use (evaluateWinner + the proven-loser gates), so
-// an auto verdict can never contradict what the stores decide.
+// display maps, parsing report strings, and DERIVING a verdict from the same
+// gate SHAPE the loop uses (evaluateWinner + the proven-loser gates).
+//
+// deriveVerdict is a per-ROW display estimate: it grades one (ad_name,
+// flight_label) row against the target it is handed. The loop's stores are
+// authoritative and grade differently — on creative_performance, which SUMs a
+// creative's flights, against each creative's own cpt_target_cents. So a
+// /performance pill can legitimately differ from a creative's store membership
+// (three small flights that each read "keep testing" but sum to a cached
+// winner). That is acceptable because an 'auto' verdict NEVER drives the loop:
+// refreshAll honors only explicit user/report overrides and derives everything
+// else from performance itself. A human/report verdict is a decision; 'auto' is
+// a hint.
 
 export const VERDICTS = ["GRADUATE", "KEEP_TESTING", "KILL"] as const;
 export type Verdict = (typeof VERDICTS)[number];
