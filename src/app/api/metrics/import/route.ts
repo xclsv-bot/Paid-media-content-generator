@@ -83,10 +83,10 @@ export async function POST(req: Request) {
     .select("ad_name, flight_label, verdict, verdict_source, flight_start")
     .in("ad_name", [...new Set(normalized.map((n) => n.ad_name))]);
   const existing = new Map<string, { verdict: string | null; verdict_source: string | null; flight_start: string | null }>();
-  for (const r of existingRows ?? []) existing.set(`${r.ad_name} ${r.flight_label}`, r);
+  for (const r of existingRows ?? []) existing.set(`${r.ad_name}\u0000${r.flight_label}`, r);
 
   const upserts = normalized.map((n) => {
-    const prior = existing.get(`${n.ad_name} ${n.flight_label}`);
+    const prior = existing.get(`${n.ad_name}\u0000${n.flight_label}`);
     const spend = (n.values.spend as number | null) ?? null;
     const conversions = (n.values.conversions as number | null) ?? null;
     const cpa = (n.values.cpa as number | null) ?? (spend != null && conversions && conversions > 0 ? spend / conversions : null);
