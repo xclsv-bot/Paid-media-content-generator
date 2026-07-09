@@ -50,21 +50,15 @@ export async function POST(
   const clientName = org?.display_name ?? "the client";
 
   // Ground the writer in what's actually winning (proven graduates) — for
-  // THIS client only. creative_metrics has no org column, so scope through
-  // the org's ad names.
-  const { data: orgNames } = await supabase
-    .from("creatives")
-    .select("ad_name")
-    .eq("org_id", (c as { org_id?: string }).org_id ?? "")
-    .not("ad_name", "is", null);
-  const nameSet = new Set((orgNames ?? []).map((n) => n.ad_name as string));
+  // THIS client only, via the org stamp on the report rows (0026).
   const { data: graduates } = await supabase
     .from("creative_metrics")
     .select("ad_name, cpa")
+    .eq("org_id", (c as { org_id?: string }).org_id ?? "")
     .eq("verdict", "GRADUATE")
     .order("cpa", { ascending: true })
-    .limit(50);
-  const winners = (graduates ?? []).filter((w) => nameSet.has(w.ad_name)).slice(0, 5);
+    .limit(5);
+  const winners = graduates ?? [];
   const winningText =
     winners
       .map((w) => `- ${shortName(w.ad_name)}${w.cpa != null ? ` · CPA $${Number(w.cpa).toFixed(2)}` : ""}`)

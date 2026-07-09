@@ -5,19 +5,23 @@ import { NUMBER_FIELDS, REPORT_VERDICTS, type ReportRow } from "@/lib/metrics/re
 
 const MAX_ROWS = 500;
 
-// POST /api/metrics  { rows: ReportRow[] }
-// Staff paste the weekly report; rows upsert into creative_metrics keyed on
-// (ad_name, flight_label). Responds with which ad names matched a concept —
-// an unmatched name is almost always a naming-convention typo, and catching
-// it here is what keeps the performance loop joined up.
+// POST /api/metrics  { rows: ReportRow[], org_id }
+// Staff import the weekly report; rows upsert into creative_metrics keyed on
+// (org_id, ad_name, flight_label). Responds with which ad names matched a
+// concept — an unmatched name is almost always a naming-convention mismatch,
+// and catching it here is what keeps the performance loop joined up.
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!isStaff(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const rows = body?.rows;
+  const orgId = body?.org_id;
   if (!Array.isArray(rows) || rows.length === 0) {
     return NextResponse.json({ error: "rows is required" }, { status: 400 });
+  }
+  if (!orgId || typeof orgId !== "string") {
+    return NextResponse.json({ error: "org_id is required" }, { status: 400 });
   }
   if (rows.length > MAX_ROWS) {
     return NextResponse.json({ error: `Too many rows (max ${MAX_ROWS} per import).` }, { status: 400 });
@@ -32,6 +36,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Invalid verdict "${r.verdict}".` }, { status: 400 });
     }
     const row: Record<string, unknown> = {
+      org_id: orgId,
       ad_name: r.ad_name.trim(),
       flight_label: typeof r.flight_label === "string" && r.flight_label.trim() ? r.flight_label.trim() : "default",
       flight_start: typeof r.flight_start === "string" ? r.flight_start : null,
@@ -54,9 +59,19 @@ export async function POST(req: Request) {
 
   // Session client: cm_staff_all RLS authorizes the write, no service role.
   const supabase = await createClient();
+  // The org must be a real client org — a typo'd id would silently orphan the
+  // whole import behind a foreign key that happens to exist.
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("id, is_agency")
+    .eq("id", orgId)
+    .single();
+  if (!org || org.is_agency) {
+    return NextResponse.json({ error: "org_id must be a client organization" }, { status: 400 });
+  }
   const { error } = await supabase
     .from("creative_metrics")
-    .upsert(deduped, { onConflict: "ad_name,flight_label" });
+    .upsert(deduped, { onConflict: "org_id,ad_name,flight_label" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Which of these names actually join to a concept?
@@ -64,6 +79,7 @@ export async function POST(req: Request) {
   const { data: matched } = await supabase
     .from("creatives")
     .select("ad_name")
+    .eq("org_id", orgId)
     .in("ad_name", names);
   const matchedSet = new Set((matched ?? []).map((m) => m.ad_name));
   const unmatched = names.filter((n) => !matchedSet.has(n));
