@@ -6,7 +6,7 @@ import { VERDICT_LABEL, VERDICT_PILL, VERDICTS, type Verdict } from "@/lib/metri
 
 // Inline verdict override on /performance. Staff can re-bucket an ad
 // (Graduated / Keep testing / Killed) or hand it back to "Auto"; the change
-// posts to /api/metrics as a verdict-only patch (metrics preserved) and the
+// posts to /api/metrics/record as a verdict-only patch (metrics preserved) and the
 // loop's stores rebuild immediately behind the scenes. Clients see the static
 // pill instead (canEdit=false).
 export default function VerdictSelect({
@@ -40,7 +40,7 @@ export default function VerdictSelect({
     setBusy(true);
     setError(false);
     try {
-      const res = await fetch("/api/metrics", {
+      const res = await fetch("/api/metrics/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ad_name: adName, flight_label: flightLabel, verdict: next }),

@@ -10,7 +10,7 @@ import { VERDICT_LABEL, VERDICTS } from "@/lib/metrics/verdict";
 // "invisible curation": the interaction of logging a CPA is what populates the
 // winners cache / golden set / loser store, no separate curation screen.
 //
-// Posts to /api/metrics keyed by the creative's ad_name. Verdict defaults to
+// Posts to /api/metrics/record keyed by the creative's ad_name. Verdict defaults to
 // "Auto" — derived from the numbers by the same gates the loop uses — so staff
 // only pick a bucket when they want to override the paid team's call.
 export default function PerformanceQuickEntry({ adName }: { adName: string }) {
@@ -35,7 +35,7 @@ export default function PerformanceQuickEntry({ adName }: { adName: string }) {
     setMsg(null);
     try {
       const ctrPct = form.ctr.trim() === "" ? null : Number(form.ctr) / 100;
-      const res = await fetch("/api/metrics", {
+      const res = await fetch("/api/metrics/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
