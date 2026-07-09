@@ -25,9 +25,30 @@ alter table public.creative_metrics
   add column verdict_source text not null default 'report'
     check (verdict_source in ('auto', 'user', 'report'));
 
--- Normalize any legacy casing before constraining the value set.
-update public.creative_metrics set verdict = upper(btrim(verdict))
-  where verdict is not null and verdict <> upper(btrim(verdict));
+-- Normalize legacy/label verdict spellings to the canonical enum before
+-- constraining the value set (mirrors parseVerdictLabel in
+-- src/lib/metrics/verdict.ts). Any unrecognized value becomes null rather than
+-- aborting the migration -- the app only ever wrote the canonical forms, so
+-- this is purely defensive against hand-edited or seeded rows.
+update public.creative_metrics set verdict = case upper(btrim(verdict))
+  when 'GRADUATE'     then 'GRADUATE'
+  when 'GRADUATED'    then 'GRADUATE'
+  when 'GRAD'         then 'GRADUATE'
+  when 'WINNER'       then 'GRADUATE'
+  when 'KEEP_TESTING' then 'KEEP_TESTING'
+  when 'KEEP TESTING' then 'KEEP_TESTING'
+  when 'KEEP-TESTING' then 'KEEP_TESTING'
+  when 'KEEP'         then 'KEEP_TESTING'
+  when 'TESTING'      then 'KEEP_TESTING'
+  when 'ITERATE'      then 'KEEP_TESTING'
+  when 'KILL'         then 'KILL'
+  when 'KILLED'       then 'KILL'
+  when 'STOP'         then 'KILL'
+  when 'STOPPED'      then 'KILL'
+  when 'LOSER'        then 'KILL'
+  else null
+end
+where verdict is not null;
 alter table public.creative_metrics
   add constraint cm_verdict_values
   check (verdict is null or verdict in ('GRADUATE', 'KEEP_TESTING', 'KILL'));
