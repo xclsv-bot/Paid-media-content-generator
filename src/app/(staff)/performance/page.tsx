@@ -8,6 +8,7 @@ import LearningsPanel from "@/components/LearningsPanel";
 import OrgPicker from "@/components/OrgPicker";
 import PromotePatternButton from "@/components/PromotePatternButton";
 import ReportImporter from "@/components/ReportImporter";
+import PeriodPicker from "@/components/PeriodPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -62,11 +63,11 @@ function shortName(adName: string): string {
 export default async function PerformancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string }>;
+  searchParams: Promise<{ org?: string; view?: string; flight?: string; month?: string }>;
 }) {
   const user = await requireStaff();
   const supabase = await createClient();
-  const { org: orgParam } = await searchParams;
+  const { org: orgParam, view: viewParam, flight: flightParam, month: monthParam } = await searchParams;
 
   // Learnings/pattern-promotion are per-org. Staff can view any client org
   // (default: the first non-agency org); a client_viewer only ever has their
@@ -112,15 +113,67 @@ export default async function PerformancePage({
     conceptsByName.set(c.ad_name, list);
   }
 
-  // Default to the most recent flight. Photo imports carry no flight_start,
-  // so fall back to when the row was imported — otherwise a new week could
-  // never win against an old one that had dates.
-  const flights = [...new Set(all.map((m) => m.flight_label))];
+  // Two views over the same rows: a single weekly flight, or a whole calendar
+  // month rolled up per ad (contract tracking). Photo imports carry no
+  // flight_start, so recency falls back to when the row was imported.
   const recency = (m: Metric) => m.flight_start ?? m.created_at ?? "";
-  const latestFlight =
-    all.reduce<Metric | null>((best, m) => (!best || recency(m) > recency(best) ? m : best), null)
-      ?.flight_label ?? flights[0] ?? null;
-  const metrics = all.filter((m) => m.flight_label === latestFlight);
+  const view: "week" | "month" = viewParam === "month" ? "month" : "week";
+
+  // Weeks (flight labels), newest first.
+  const flightRecency = new Map<string, string>();
+  for (const m of all) {
+    const r = recency(m);
+    if (r > (flightRecency.get(m.flight_label) ?? "")) flightRecency.set(m.flight_label, r);
+  }
+  const flights = [...flightRecency.entries()].sort((a, b) => (a[1] < b[1] ? 1 : -1)).map(([label]) => label);
+  const selectedFlight = flightParam && flights.includes(flightParam) ? flightParam : flights[0] ?? null;
+
+  // Months (YYYY-MM from each row's recency date), newest first.
+  const monthKeys = [...new Set(all.map((m) => recency(m).slice(0, 7)).filter((k) => k.length === 7))].sort().reverse();
+  const monthLabel = (key: string) =>
+    new Date(`${key}-15T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const months = monthKeys.map((key) => ({ key, label: monthLabel(key) }));
+  const selectedMonth = monthParam && monthKeys.includes(monthParam) ? monthParam : monthKeys[0] ?? null;
+
+  let metrics: Metric[];
+  let weeksInPeriod = 1;
+  if (view === "week") {
+    metrics = all.filter((m) => m.flight_label === selectedFlight);
+  } else {
+    // One row per ad across every flight in the month: sums for volume,
+    // ratio-of-sums CPA, spend-weighted CTR/ROAS, verdict/reason from the
+    // most recent week the ad appeared in.
+    const monthRows = all.filter((m) => recency(m).slice(0, 7) === selectedMonth);
+    weeksInPeriod = new Set(monthRows.map((m) => m.flight_label)).size;
+    const byAd = new Map<string, Metric[]>();
+    for (const m of monthRows) {
+      const list = byAd.get(m.ad_name) ?? [];
+      list.push(m);
+      byAd.set(m.ad_name, list);
+    }
+    metrics = [...byAd.values()].map((rows) => {
+      const latest = rows.reduce((b, m) => (recency(m) > recency(b) ? m : b));
+      const spend = rows.reduce((s, m) => s + Number(m.spend || 0), 0);
+      const conv = rows.reduce((s, m) => s + Number(m.conversions || 0), 0);
+      const weighted = (pick: (m: Metric) => number | null) => {
+        let w = 0, acc = 0;
+        for (const m of rows) {
+          const v = pick(m);
+          const sp = Number(m.spend || 0);
+          if (v != null && sp > 0) { w += sp; acc += Number(v) * sp; }
+        }
+        return w > 0 ? acc / w : null;
+      };
+      return {
+        ...latest,
+        spend,
+        conversions: conv,
+        cpa: conv > 0 ? spend / conv : null,
+        ctr: weighted((m) => m.ctr),
+        roas: weighted((m) => m.roas),
+      };
+    }).sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
+  }
 
   const targetCents = defaultTargetCents();
   const targetDollars = targetCents != null ? targetCents / 100 : null;
@@ -156,8 +209,11 @@ export default async function PerformancePage({
         <div>
           <h1 className="text-2xl font-semibold">Performance</h1>
           <p className="text-sm text-white/50">
-            Creative testing — graduation report{latestFlight ? ` · ${latestFlight}` : ""}. CPA target{" "}
-            {targetDollars != null ? usd(targetDollars) : "—"}.
+            Creative testing — graduation report
+            {view === "week"
+              ? selectedFlight ? ` · ${selectedFlight}` : ""
+              : selectedMonth ? ` · ${monthLabel(selectedMonth)} · ${weeksInPeriod} weekly report${weeksInPeriod === 1 ? "" : "s"}` : ""}
+            . CPA target {targetDollars != null ? usd(targetDollars) : "—"}.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -168,9 +224,19 @@ export default async function PerformancePage({
         </div>
       </header>
 
+      {all.length > 0 && (
+        <PeriodPicker
+          view={view}
+          weeks={flights}
+          months={months}
+          currentWeek={selectedFlight}
+          currentMonth={selectedMonth}
+        />
+      )}
+
       {metrics.length === 0 ? (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No report loaded yet — click “Import weekly report” above and paste the sheet rows to light this page up.
+          No report loaded yet — click “Import weekly report” above and add this week&apos;s photo or rows to light this page up.
         </p>
       ) : (
         <>
@@ -179,7 +245,7 @@ export default async function PerformancePage({
             <Tile label="Spend" value={usd(totSpend)} />
             <Tile label="Conversions" value={num(totConv)} />
             <Tile label="Blended CPA" value={usd(blendedCpa)} accent={blendedCpa != null && targetDollars != null && blendedCpa <= targetDollars} />
-            <Tile label="Graduated" value={`${grads} / ${metrics.length}`} accent={grads > 0} />
+            <Tile label={view === "month" ? "Graduated (ads this month)" : "Graduated"} value={`${grads} / ${metrics.length}`} accent={grads > 0} />
           </div>
 
           {/* Verdict groups */}
