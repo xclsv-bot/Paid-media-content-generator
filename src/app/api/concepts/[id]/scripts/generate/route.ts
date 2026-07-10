@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText } from "@/lib/loop/rubric";
 import { insertNextScriptVersion } from "@/lib/scripts";
+import { getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
+import { getGoldenExamples, findDuplicateScript } from "@/lib/loop/golden";
+import { getBadExamples, badExampleLine } from "@/lib/loop/bad";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -49,20 +52,43 @@ export async function POST(
   const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
   const clientName = org?.display_name ?? "the client";
 
-  // Ground the writer in what's actually winning (proven graduates) — for
-  // THIS client only, via the org stamp on the report rows (0026).
+  // Ground the writer in the SAME loop stores that Ideate uses — the golden
+  // winning scripts, the winners cache, and the bad-example store — with the
+  // report GRADUATE list only as a cold-start fallback. creative_metrics is
+  // org-stamped since 0026, so the fallback scopes directly by org_id.
+  const orgId = (c as { org_id?: string }).org_id ?? "";
+  const [golden, cache, bad] = await Promise.all([
+    getGoldenExamples(supabase, orgId, 5),
+    getCachedWinners(supabase, orgId, 5),
+    getBadExamples(supabase, orgId, 5),
+  ]);
+
+  const goldenBlock = golden.examples.length
+    ? `PROVEN WINNING SCRIPTS (study the pattern — don't copy verbatim):\n${golden.examples
+        .map((g) => `- "${g.dimensions?.hook_line ?? "?"}" (${g.dimensions?.family ?? "?"}) — ${g.why_it_won}\n  ${g.script.slice(0, 220)}${g.transcript ? `\n  Winning delivery: "${g.transcript.slice(0, 200)}"` : ""}`)
+        .join("\n")}`
+    : "";
+  const winnersBlock = !cache.error && cache.winners.length
+    ? `TOP PERFORMERS (proven — Hit + volume-gated):\n${cache.winners.map(winnerLine).join("\n")}`
+    : "";
+  const avoidBlock = bad.examples.length
+    ? `AVOID THESE PATTERNS (proven losers, killed content, and compliance rejections):\n${bad.examples.map(badExampleLine).join("\n")}`
+    : "";
+  const grounded = [goldenBlock, winnersBlock, avoidBlock].filter(Boolean).join("\n\n");
+
   const { data: graduates } = await supabase
     .from("creative_metrics")
     .select("ad_name, cpa")
-    .eq("org_id", (c as { org_id?: string }).org_id ?? "")
+    .eq("org_id", orgId)
     .eq("verdict", "GRADUATE")
     .order("cpa", { ascending: true })
     .limit(5);
-  const winners = graduates ?? [];
+  const gradWinners = graduates ?? [];
   const winningText =
-    winners
+    grounded ||
+    (gradWinners
       .map((w) => `- ${shortName(w.ad_name)}${w.cpa != null ? ` · CPA $${Number(w.cpa).toFixed(2)}` : ""}`)
-      .join("\n") || "(no graduates yet — lean on the hypothesis)";
+      .join("\n") || "(no proven winners yet — lean on the hypothesis)");
 
   const context = [
     `Family: ${fam?.name ?? "—"}`,
@@ -86,7 +112,7 @@ Match this shape and voice — a sharp friend putting them on game, talking TO t
 
 Non-negotiables to bake into the brief: wins are always the outcome of research, never luck; never frame it as picks, locks, or guaranteed wins — it's about smarter research. Close with the concept's CTA${c.cta ? ` ("${c.cta}")` : ""} as the sign-off.
 
-Lean on what's already working (below) for the angle, but don't copy a specific ad:
+Lean on what's already working (below) for the angle, and steer clear of the patterns that lost — but don't copy any specific ad:
 ${winningText}
 
 This brief should still respect the same quality bar the finished piece is judged on:
@@ -102,23 +128,49 @@ Return the brief in "body" (a few short paragraphs a creator reads in 30 seconds
   }
 
   try {
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: GEN_SCHEMA } },
-      system,
-      messages: [{ role: "user", content: `CONCEPT\n${context}` }],
-    });
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
+    // Generate, then verify the output isn't a near-copy of a golden script we
+    // fed the writer. The golden scripts are IN the prompt, so echoing them is a
+    // real failure mode — no near-duplicate may reach persistence. One hardened
+    // retry, then reject (don't save) rather than pollute the set it cloned.
+    const generate = async (extra: string) => {
+      const response = await client.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 4000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium", format: { type: "json_schema", schema: GEN_SCHEMA } },
+        system: extra ? `${system}\n\n${extra}` : system,
+        messages: [{ role: "user", content: `CONCEPT\n${context}` }],
+      });
+      return response;
+    };
+
+    let parsed: { body?: string; notes?: string } | null = null;
+    let dupOf: string | null = null;
+    const HARDEN =
+      "CRITICAL: your previous draft restated a proven winner almost verbatim. Write a DISTINCT brief that uses the winning PATTERN in entirely fresh wording — do not reuse the golden example's phrasing, sentences, or hook.";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await generate(attempt === 0 ? "" : HARDEN);
+      if (response.stop_reason === "refusal") {
+        return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
+      }
+      const textBlock = response.content.find((b) => b.type === "text");
+      const candidate = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
+      if (!candidate.body) return NextResponse.json({ error: "Empty script" }, { status: 500 });
+      dupOf = findDuplicateScript(candidate.body, golden.examples);
+      if (!dupOf) {
+        parsed = candidate;
+        break;
+      }
     }
-    const textBlock = response.content.find((b) => b.type === "text");
-    const parsed = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
-    if (!parsed.body) return NextResponse.json({ error: "Empty script" }, { status: 500 });
+    if (!parsed) {
+      return NextResponse.json(
+        { error: `The draft kept restating a golden example ("${dupOf}"). Vary the concept or edit by hand.`, duplicate_of: dupOf },
+        { status: 422 },
+      );
+    }
 
     const { data: saved, error } = await insertNextScriptVersion(supabase, conceptId, {
-      body: parsed.body,
+      body: parsed.body!,
       source: "ai",
       status: "draft",
       model: "claude-opus-4-8",

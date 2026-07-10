@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
-import { findNearDuplicate, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
+import { findNearDuplicate, findDuplicateHook, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
 import { sourceRef } from "@/lib/loop/sourceRef";
 import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
   // directive cites resolves to the actual script here, in the same prompt —
   // the ref stops being an inert token the model can't follow.
   const goldenLine = (g: GoldenExample) =>
-    `• [${sourceRef("golden", g.creative_id)}] "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`;
+    `• [${sourceRef("golden", g.creative_id)}] "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}${g.transcript ? `\n  Winning delivery (what was actually said): "${g.transcript.slice(0, 240)}"` : ""}`;
   const goldenBlock = golden.error
     ? `(golden set unavailable: ${golden.error})`
     : golden.examples.length
@@ -126,13 +126,13 @@ export async function POST(req: Request) {
       : "(golden set is empty — no winner has a captured script yet; the daily refresh populates it)";
 
   // Bad examples: proven losers + compliance rejections — the patterns to avoid.
-  const losers = bad.examples.filter((b) => b.kind === "proven_loser");
+  const losers = bad.examples.filter((b) => b.kind === "proven_loser" || b.kind === "manual_kill");
   const rejections = bad.examples.filter((b) => b.kind === "review_rejection");
   const badBlock = bad.error
     ? `(bad-example store unavailable: ${bad.error})`
     : bad.examples.length
       ? [
-          losers.length ? `PROVEN LOSERS (mature, volume-gated, CPT well over target):\n${losers.map((b) => `[${sourceRef("loser", b.creative_id)}] ${badExampleLine(b)}`).join("\n")}` : "",
+          losers.length ? `PROVEN LOSERS & KILLED CONTENT (patterns to avoid — proven losers are mature/volume-gated over target; kills are the paid team decisions):\n${losers.map((b) => `[${sourceRef("loser", b.creative_id)}] ${badExampleLine(b)}`).join("\n")}` : "",
           rejections.length ? `COMPLIANCE REJECTIONS (scripts the reviewer failed — never repeat these mistakes):\n${rejections.map((b) => `[${sourceRef("rejection", b.creative_id)}] ${badExampleLine(b)}`).join("\n")}` : "",
         ].filter(Boolean).join("\n\n")
       : EMPTY_BAD_NOTE;
@@ -196,12 +196,19 @@ When the user shares context (call transcripts, references, performance signals)
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock && "text" in textBlock ? textBlock.text : "{}";
     const parsed = JSON.parse(raw);
-    // Diversity guard: flag (never drop) concepts that near-duplicate a golden
-    // example, so staff see the overlap and decide.
-    type Concept = { family?: string | null; angle?: string | null; format?: string | null };
+    // Diversity guard, two levels:
+    //   near_duplicate    — soft badge: same family+angle+format as a golden
+    //                       example ("vary this"), staff still decide.
+    //   blocked_duplicate — hard: its hook restates a golden hook, so the
+    //                       concept-persist gate (/api/concepts) WILL 422 it.
+    //                       The UI disables Add for these. (The lexical check is
+    //                       cheap; the semantic paraphrase check still runs at
+    //                       persist for anything that gets through.)
+    type Concept = { family?: string | null; angle?: string | null; format?: string | null; hook?: string | null };
     const concepts = ((parsed.concepts ?? []) as Concept[]).map((con) => ({
       ...con,
       near_duplicate: findNearDuplicate(con, golden.examples),
+      blocked_duplicate: findDuplicateHook(con.hook, golden.examples),
     }));
     return NextResponse.json({ reply: parsed.reply ?? "", concepts });
   } catch (e) {

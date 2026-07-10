@@ -7,8 +7,10 @@ import { latestLearnings, type Learning } from "@/lib/loop/learnings";
 import LearningsPanel from "@/components/LearningsPanel";
 import OrgPicker from "@/components/OrgPicker";
 import PromotePatternButton from "@/components/PromotePatternButton";
+import VerdictSelect from "@/components/VerdictSelect";
 import ReportImporter from "@/components/ReportImporter";
 import PeriodPicker from "@/components/PeriodPicker";
+import { type Verdict } from "@/lib/metrics/verdict";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,7 @@ type Metric = {
   ctr: number | null;
   bau_cpa: number | null;
   verdict: string | null;
+  verdict_source: string | null;
   reason: string | null;
   cpm: number | null;
   cpi: number | null;
@@ -95,7 +98,7 @@ export default async function PerformancePage({
     supabase
       .from("creative_metrics")
       .select(
-        "ad_name, flight_label, flight_start, created_at, spend, conversions, cpa, ctr, bau_cpa, verdict, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
+        "ad_name, flight_label, flight_start, created_at, spend, conversions, cpa, ctr, bau_cpa, verdict, verdict_source, reason, cpm, cpi, cps, icvr, scvr, aov, roas",
       )
       .eq("org_id", orgId ?? "")
       .order("spend", { ascending: false, nullsFirst: false }),
@@ -263,6 +266,15 @@ export default async function PerformancePage({
                                   </div>
                                 )}
                                 {m.reason && <div className="mt-0.5 max-w-md text-[11.5px] text-white/45">{m.reason}</div>}
+                                <div className="mt-1.5">
+                                  <VerdictSelect
+                                    adName={m.ad_name}
+                                    flightLabel={m.flight_label}
+                                    verdict={(m.verdict as Verdict | null) ?? null}
+                                    source={m.verdict_source}
+                                    canEdit
+                                  />
+                                </div>
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums text-white/80">{usd(m.spend)}</td>
                               <td className="px-3 py-2 text-right tabular-nums text-white/80">{num(m.conversions)}</td>

@@ -129,7 +129,7 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
     };
   });
 
-  const loserRows = bad.examples.filter((b: BadExample) => b.kind === "proven_loser");
+  const loserRows = bad.examples.filter((b: BadExample) => b.kind === "proven_loser" || b.kind === "manual_kill");
   const losersSrc: RecSource[] = loserRows.map((b) => {
     const d = b.dimensions ?? {};
     const label = `"${d.hook_line ?? "?"}" — ${d.family ?? "?"} / ${d.hook_angle ?? "?"} / ${d.sport ?? "?"}`;

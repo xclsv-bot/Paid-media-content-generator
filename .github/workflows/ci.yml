@@ -79,3 +79,7 @@ jobs:
       # land; every stored rejection carries its compliance reason.
       - name: Bad-Example tests
         run: psql -v ON_ERROR_STOP=1 -f ci/bad_tests.sql
+      # Verdict-override selection: newest human verdict wins over an older dated
+      # report row; 'auto' rows never count as overrides.
+      - name: Verdict-override tests
+        run: psql -v ON_ERROR_STOP=1 -f ci/verdict_override_tests.sql

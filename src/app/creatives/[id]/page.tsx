@@ -10,6 +10,7 @@ import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel"
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
 import AdNameTag from "@/components/AdNameTag";
+import PerformanceQuickEntry from "@/components/PerformanceQuickEntry";
 import DiscussionThread, { type Note } from "@/components/DiscussionThread";
 
 export const dynamic = "force-dynamic";
@@ -172,6 +173,12 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
           </div>
 
           {!creator && <PerformancePanel perf={(perf as unknown as CreativePerf) ?? null} targetCents={creative.cpt_target_cents ?? defaultTargetCents()} />}
+          {staff && creative.ad_name && (
+            <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
+              <div className="mb-3 font-mono text-[11px] uppercase tracking-wide text-white/45">Log performance</div>
+              <PerformanceQuickEntry adName={creative.ad_name} />
+            </div>
+          )}
 
           <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
             <div className="mb-3 font-mono text-[11px] uppercase tracking-wide text-white/45">Production spec</div>

@@ -3,6 +3,7 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText } from "@/lib/loop/rubric";
+import { getGoldenExamples, findDuplicateScript } from "@/lib/loop/golden";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -46,7 +47,7 @@ export async function POST(
 
   const { data: c } = await supabase
     .from("creatives")
-    .select("hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)")
+    .select("org_id, hook_line, hook_angle, archetype, sport, feature_pillar, format, cta, content_summary, compliance_note, concept_families(name, compliance_note), organizations(display_name, voice_note)")
     .eq("id", script.concept_id)
     .single();
   const fam = Array.isArray(c?.concept_families) ? c?.concept_families[0] : c?.concept_families;
@@ -84,21 +85,49 @@ Return the full revised brief in "body", and a one-line "notes" on what you chan
     return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
   }
 
+  // Golden set for the OUTPUT gate below. Revisions fold in the reviewer's
+  // golden-grounded suggestions, so a revision can drift into restating a
+  // winner even though this prompt doesn't inject golden text.
+  const orgId = (c as { org_id?: string } | null)?.org_id ?? "";
+  const golden = orgId ? await getGoldenExamples(supabase, orgId, 5) : { examples: [] };
+
   try {
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: REVISE_SCHEMA } },
-      system,
-      messages: [{ role: "user", content: `CONCEPT CONTEXT\n${context}\n\nCURRENT BRIEF (v${script.version})\n${script.body}\n\nREVIEW FEEDBACK\n${feedback}` }],
-    });
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
+    // Generate, then reject a near-copy of a golden script before persisting —
+    // one hardened retry, mirroring the generation route.
+    const revise = async (extra: string) =>
+      client.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 4000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium", format: { type: "json_schema", schema: REVISE_SCHEMA } },
+        system: extra ? `${system}\n\n${extra}` : system,
+        messages: [{ role: "user", content: `CONCEPT CONTEXT\n${context}\n\nCURRENT BRIEF (v${script.version})\n${script.body}\n\nREVIEW FEEDBACK\n${feedback}` }],
+      });
+    const HARDEN =
+      "CRITICAL: your previous draft restated a proven winner almost verbatim. Rewrite it in entirely fresh wording — use the winning pattern, never the golden example's phrasing, sentences, or hook.";
+
+    let parsed: { body?: string; notes?: string } | null = null;
+    let dupOf: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await revise(attempt === 0 ? "" : HARDEN);
+      if (response.stop_reason === "refusal") {
+        return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
+      }
+      const textBlock = response.content.find((b) => b.type === "text");
+      const candidate = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
+      if (!candidate.body) return NextResponse.json({ error: "Empty revision" }, { status: 500 });
+      dupOf = findDuplicateScript(candidate.body, golden.examples);
+      if (!dupOf) {
+        parsed = candidate;
+        break;
+      }
     }
-    const textBlock = response.content.find((b) => b.type === "text");
-    const parsed = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
-    if (!parsed.body) return NextResponse.json({ error: "Empty revision" }, { status: 500 });
+    if (!parsed) {
+      return NextResponse.json(
+        { error: `The revision kept restating a golden example ("${dupOf}"). Edit by hand or vary the concept.`, duplicate_of: dupOf },
+        { status: 422 },
+      );
+    }
 
     const { data: latest } = await supabase
       .from("scripts")

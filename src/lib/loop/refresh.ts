@@ -17,7 +17,7 @@ import { badMax, goldenMax, loserCptMultiplier, loserMatureDays, loserMinResults
 
 export type StageResult = { upserted: number; pruned: number; skippedNoScript: number };
 export type RefreshResult =
-  | { evaluated: number; cached: number; golden: StageResult; bad: StageResult }
+  | { evaluated: number; cached: number; golden: StageResult; bad: StageResult; manualKills: StageResult }
   | { error: string };
 
 export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> {
@@ -26,7 +26,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       admin.from("creative_performance").select("creative_id, spend, results, cpt, ctr, first_date"),
       admin
         .from("creatives")
-        .select("id, org_id, sport, format, hook_line, concept_family_id, hook_angle, archetype, cpt_target_cents, concept_families(name)"),
+        .select("id, org_id, ad_name, sport, format, hook_line, concept_family_id, hook_angle, archetype, cpt_target_cents, concept_families(name)"),
     ]);
   if (perfErr) return { error: perfErr.message };
   if (cErr) return { error: cErr.message };
@@ -34,7 +34,41 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
   const perfById = new Map<string, { spend: number | null; results: number | null; cpt: number | null; ctr: number | null; first_date: string | null }>();
   for (const p of perfRows ?? []) perfById.set(p.creative_id, p);
 
+  // The current human override per ad name — the verdict the loop must honor
+  // over its own gates. We look ONLY at rows a human or the report explicitly
+  // set (verdict_source user/report); 'auto' rows are the gates' own opinion and
+  // never count as an override, so a fresh auto row can't silently clear a
+  // human KILL/GRADUATE. Among a name's override rows the most RECENTLY WRITTEN
+  // one wins (updated_at), independent of flight_start — quick-entry rows carry
+  // no flight date, so ordering by flight_start would wrongly rank them last.
+  // creative_metrics is the base table (the performance view drops the verdict);
+  // the admin client reads every org's rows.
+  const { data: metricRows } = await admin
+    .from("creative_metrics")
+    .select("ad_name, verdict, updated_at, flight_start")
+    .in("verdict_source", ["user", "report"])
+    .not("verdict", "is", null)
+    .order("updated_at", { ascending: false })
+    .order("flight_start", { ascending: false, nullsFirst: false });
+  const latestVerdict = new Map<string, "GRADUATE" | "KEEP_TESTING" | "KILL">();
+  for (const m of (metricRows ?? []) as { ad_name: string; verdict: string | null }[]) {
+    if (latestVerdict.has(m.ad_name)) continue; // most recently written override wins
+    if (m.verdict === "GRADUATE" || m.verdict === "KEEP_TESTING" || m.verdict === "KILL") {
+      latestVerdict.set(m.ad_name, m.verdict);
+    }
+  }
+
   const fallback = defaultTargetCents();
+
+  // ad_name -> orgs that use it. creative_metrics (and thus latestVerdict) is
+  // keyed by ad_name with no org column; if two orgs share an ad_name we cannot
+  // tell whose verdict it is, so we withhold the override from ALL of them
+  // rather than risk force-curating another tenant's creative (Fix #5).
+  const orgsByAdName = new Map<string, Set<string>>();
+  for (const c of creatives ?? []) {
+    if (!c.ad_name) continue;
+    (orgsByAdName.get(c.ad_name) ?? orgsByAdName.set(c.ad_name, new Set()).get(c.ad_name)!).add(c.org_id);
+  }
   const capturedAt = new Date().toISOString();
   const now = new Date();
   const minLoserResults = loserMinResults();
@@ -42,6 +76,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
   const winners: Record<string, unknown>[] = [];
   const qualifiers: GoldenQualifier[] = [];
   const losers: (GoldenQualifier & { spend_cents: number; first_spend_date: string })[] = [];
+  const manualKills: (Omit<GoldenQualifier, "cpt_cents"> & { cpt_cents: number | null; spend_cents: number; first_spend_date: string | null })[] = [];
   let evaluated = 0;
 
   for (const c of creatives ?? []) {
@@ -55,9 +90,43 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     const famRaw = c.concept_families as { name: string } | { name: string }[] | null;
     const family = !famRaw ? null : Array.isArray(famRaw) ? famRaw[0]?.name ?? null : famRaw.name;
 
+    // Latest-flight human verdict overrides the gates (Zaire's invisible
+    // curation): KILL → manual-kill bad example; GRADUATE → force-cache even
+    // under-volume; KEEP_TESTING → hold (neither win nor loss). No override, or
+    // an 'auto' latest flight, falls through to the gates below.
+    // Withhold the override when the ad_name is shared across orgs (unattributable).
+    const override =
+      c.ad_name && orgsByAdName.get(c.ad_name)?.size === 1
+        ? latestVerdict.get(c.ad_name) ?? null
+        : null;
+
+    if (override === "KILL") {
+      manualKills.push({
+        creative_id: c.id,
+        org_id: c.org_id,
+        score: cpt != null && target ? (cpt * 100) / target : 0,
+        reason: `Killed by the paid team${cpt != null ? `: CPA $${cpt.toFixed(2)} vs $${(target / 100).toFixed(2)} target` : ""}${results ? ` over ${Math.round(results)} conversions` : ""}`,
+        cpt_cents: cpt == null ? null : Math.round(cpt * 100),
+        results: Math.round(results),
+        target_cents: target,
+        spend_cents: Math.round(spend * 100),
+        first_spend_date: p.first_date,
+        family,
+        hook_line: c.hook_line,
+        hook_angle: c.hook_angle,
+        archetype: c.archetype,
+        sport: c.sport,
+        format: c.format,
+      });
+      continue;
+    }
+    if (override === "KEEP_TESTING") continue; // human says inconclusive — hold
+
     // Proven loser? All three gates: mature + volume + CPT well over target.
     // (apply_bad_refresh re-enforces these in SQL; this is the primary filter.)
+    // A GRADUATE override is a winner by fiat, so it can't also be a loser.
     if (
+      override !== "GRADUATE" &&
       cpt != null && target != null && p.first_date != null &&
       isMature(p.first_date, now) &&
       results >= minLoserResults &&
@@ -82,16 +151,25 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       });
     }
 
-    const verdict = evaluateWinner(
+    const graded = evaluateWinner(
       { creativeId: c.id, spend, results, cpt, ctr: p.ctr == null ? null : Number(p.ctr) },
       target,
     );
-    if (!verdict.qualifies) continue;
+    const graduate = override === "GRADUATE";
+    if (!graded.qualifies && !graduate) continue;
+    // A forced graduate still needs a comparable rank: efficiency (when a CPT
+    // is known) × √volume, falling back to volume alone. Gated winners keep
+    // their evaluateWinner score untouched.
+    const efficiency = cpt != null && cpt > 0 && target != null ? target / 100 / cpt : 1;
+    const score = graded.qualifies ? (graded.score ?? 0) : efficiency * Math.sqrt(Math.max(results, 1));
+    const reason = graded.qualifies
+      ? graded.reason
+      : `Graduated by the paid team${cpt != null ? `: CPA $${cpt.toFixed(2)}` : ""}${results ? ` over ${Math.round(results)} conversions` : ""}`;
     qualifiers.push({
       creative_id: c.id,
       org_id: c.org_id,
-      score: verdict.score ?? 0,
-      reason: verdict.reason,
+      score,
+      reason,
       cpt_cents: Math.round((cpt ?? 0) * 100),
       results: Math.round(results),
       target_cents: target ?? 0,
@@ -105,7 +183,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     winners.push({
       creative_id: c.id,
       org_id: c.org_id,
-      score: verdict.score,
+      score,
       cpt_cents: cpt == null ? null : Math.round(cpt * 100),
       results: Math.round(results),
       spend_cents: Math.round(spend * 100),
@@ -142,8 +220,12 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
   // All curation-safety and gate enforcement live in the SQL functions.
   const topGolden = [...qualifiers].sort((a, b) => b.score - a.score).slice(0, goldenMax());
   const topLosers = [...losers].sort((a, b) => b.score - a.score).slice(0, badMax());
+  // Not capped by badMax: a manual kill is an explicit human decision, and
+  // apply_manual_kills prunes any kill absent from this list — capping would
+  // silently delete a real kill (and starve one org behind another's).
+  const topManualKills = [...manualKills].sort((a, b) => b.score - a.score);
   const scriptByConcept = new Map<string, { body: string; version: number }>();
-  const scriptIds = [...new Set([...topGolden, ...topLosers].map((q) => q.creative_id))];
+  const scriptIds = [...new Set([...topGolden, ...topLosers, ...topManualKills].map((q) => q.creative_id))];
   if (scriptIds.length) {
     const { data: scripts, error: sErr } = await admin
       .from("scripts")
@@ -155,7 +237,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       if (!scriptByConcept.has(s.concept_id)) scriptByConcept.set(s.concept_id, s);
     }
   }
-  const dims = (q: GoldenQualifier) => ({
+  const dims = (q: Pick<GoldenQualifier, "family" | "hook_line" | "hook_angle" | "archetype" | "sport" | "format">) => ({
     family: q.family,
     hook_line: q.hook_line,
     hook_angle: q.hook_angle,
@@ -163,6 +245,26 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     sport: q.sport,
     format: q.format,
   });
+
+  // Winning-video transcripts — what the winning cut actually SAID. Snapshot a
+  // short excerpt into each golden example so ideation can ground on the proven
+  // copy, not just the written script (Zaire: "here's the copy that worked").
+  const goldenIds = topGolden.map((q) => q.creative_id);
+  const transcriptByConcept = new Map<string, string>();
+  if (goldenIds.length) {
+    const { data: vids } = await admin
+      .from("video_assets")
+      .select("creative_id, transcript, uploaded_at")
+      .in("creative_id", goldenIds)
+      .eq("transcript_status", "done")
+      .not("transcript", "is", null)
+      .order("uploaded_at", { ascending: false });
+    for (const v of (vids ?? []) as { creative_id: string; transcript: string | null }[]) {
+      if (v.transcript && v.transcript.trim() && !transcriptByConcept.has(v.creative_id)) {
+        transcriptByConcept.set(v.creative_id, v.transcript.trim());
+      }
+    }
+  }
 
   let goldenSkipped = 0;
   const goldenCandidates: Record<string, unknown>[] = [];
@@ -183,6 +285,7 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       cpt_cents: q.cpt_cents,
       results: q.results,
       target_cents: q.target_cents,
+      transcript: transcriptByConcept.get(q.creative_id)?.slice(0, 600) ?? null,
     });
   }
   // Always call the refresh — an empty candidate list must still prune stale
@@ -224,10 +327,42 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
   if (bErr) return { error: bErr.message };
   const b = (badRes ?? {}) as { upserted?: number; pruned?: number };
 
+  // Manual kills — human KILL verdicts, no gates to re-enforce (the decision is
+  // the evidence), but still snapshot the script like every other example. An
+  // empty list still prunes: a verdict flipped off KILL un-kills next run.
+  let manualSkipped = 0;
+  const manualCandidates: Record<string, unknown>[] = [];
+  for (const q of topManualKills) {
+    const s2 = scriptByConcept.get(q.creative_id);
+    if (!s2 || !s2.body.trim()) {
+      manualSkipped++;
+      continue;
+    }
+    manualCandidates.push({
+      creative_id: q.creative_id,
+      org_id: q.org_id,
+      script: s2.body,
+      script_version: s2.version,
+      reason: q.reason,
+      dimensions: dims(q),
+      cpt_cents: q.cpt_cents,
+      target_cents: q.target_cents,
+      results: q.results,
+      spend_cents: q.spend_cents,
+      first_spend_date: q.first_spend_date,
+    });
+  }
+  const { data: killRes, error: kErr } = await admin.rpc("apply_manual_kills", {
+    candidates: manualCandidates,
+  });
+  if (kErr) return { error: kErr.message };
+  const k = (killRes ?? {}) as { upserted?: number; pruned?: number };
+
   return {
     evaluated,
     cached: winners.length,
     golden: { upserted: g.upserted ?? 0, pruned: g.pruned ?? 0, skippedNoScript: goldenSkipped },
     bad: { upserted: b.upserted ?? 0, pruned: b.pruned ?? 0, skippedNoScript: badSkipped },
+    manualKills: { upserted: k.upserted ?? 0, pruned: k.pruned ?? 0, skippedNoScript: manualSkipped },
   };
 }

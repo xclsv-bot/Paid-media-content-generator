@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { getGoldenExamples, findDuplicateScript } from "@/lib/loop/golden";
 
-// POST /api/scripts/:id/approve — staff approves a script version (e.g. an AI draft)
-// as-is, without editing it.
+// POST /api/scripts/:id/approve  { allow_duplicate? }
+// Staff approves a script version as-is. Approval is a hard gate for the
+// diversity guard: a near-copy of a golden script must not become "approved"
+// (the state that reaches a creator), even if it slipped into the table via an
+// older/unguarded path. Re-check the body here before flipping the status.
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await getCurrentUser();
@@ -14,7 +18,33 @@ export async function POST(
   }
 
   const { id } = await params;
+  const { allow_duplicate } = await req.json().catch(() => ({}));
   const supabase = await createClient();
+
+  const { data: script } = await supabase
+    .from("scripts")
+    .select("id, body, concept_id")
+    .eq("id", id)
+    .single();
+  if (!script) return NextResponse.json({ error: "Script not found" }, { status: 404 });
+
+  if (!allow_duplicate) {
+    const { data: c } = await supabase.from("creatives").select("org_id").eq("id", script.concept_id).single();
+    if (c?.org_id) {
+      const { examples } = await getGoldenExamples(supabase, c.org_id, 50);
+      const dup = findDuplicateScript(script.body as string, examples);
+      if (dup) {
+        return NextResponse.json(
+          {
+            error: `This script near-duplicates a golden example ("${dup}"). Revise it, or resubmit with allow_duplicate:true to override.`,
+            duplicate_of: dup,
+          },
+          { status: 422 },
+        );
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from("scripts")
     .update({ status: "approved" })
