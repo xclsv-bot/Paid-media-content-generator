@@ -3,15 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchJson } from "@/lib/http";
-
-export type Learning = {
-  id: string;
-  narrative: string;
-  do_more: string[] | null;
-  do_less: string[] | null;
-  watchouts: string[] | null;
-  created_at: string;
-};
+import { parseSourceRef, SOURCE_KIND_LABEL } from "@/lib/loop/sourceRef";
+// One definition of these types (learnings.ts) — the panel and the server that
+// feeds it (performance/page.tsx) share it, so a shape change can't drift the UI.
+// Type-only import: erased at build, pulls no server code into the client bundle.
+import type { Rec, Learning } from "@/lib/loop/learnings";
 
 export default function LearningsPanel({
   learning,
@@ -45,11 +41,34 @@ export default function LearningsPanel({
     }
   }
 
-  const Col = ({ label, items, color }: { label: string; items: string[] | null; color: string }) =>
+  const Col = ({ label, items, color }: { label: string; items: Rec[] | null; color: string }) =>
     items && items.length ? (
       <div>
         <div className={`mb-1 font-mono text-[10px] uppercase tracking-wide ${color}`}>{label}</div>
-        <ul className="space-y-1 text-sm text-white/75">{items.map((x, i) => <li key={i}>• {x}</li>)}</ul>
+        <ul className="space-y-1.5 text-sm text-white/75">
+          {items.map((x, i) => (
+            <li key={i}>
+              • {x.directive}
+              {x.metric && <span className="text-white/45"> — {x.metric}</span>}
+              {x.sources?.length ? (
+                <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
+                  {x.sources.map((s) => {
+                    const ref = parseSourceRef(s);
+                    return (
+                      <span
+                        key={s}
+                        className="rounded border border-white/10 bg-white/[0.04] px-1 font-mono text-[9.5px] text-white/40"
+                        title={ref ? `${SOURCE_KIND_LABEL[ref.kind]} · ${ref.key}` : s}
+                      >
+                        {ref ? `${SOURCE_KIND_LABEL[ref.kind]}:${ref.key}` : s}
+                      </span>
+                    );
+                  })}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       </div>
     ) : null;
 
@@ -78,9 +97,10 @@ export default function LearningsPanel({
       ) : (
         <>
           <p className="text-[15px] leading-relaxed text-white/85">{learning.narrative}</p>
-          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Col label="Do more" items={learning.do_more} color="text-emerald-300" />
             <Col label="Do less" items={learning.do_less} color="text-red-300" />
+            <Col label="Explore" items={learning.explore} color="text-sky-300" />
             <Col label="Watch out" items={learning.watchouts} color="text-amber-300" />
           </div>
         </>

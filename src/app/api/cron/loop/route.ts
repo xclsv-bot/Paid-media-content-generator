@@ -23,11 +23,17 @@ export async function GET(req: Request) {
   // Rebuild winners/golden/bad first so the learnings below read fresh stores
   // (the daily refresh cron may be hours stale by the weekly run).
   const refresh = await refreshAll(admin);
-  const { data: clientOrgs } = await admin.from("organizations").select("id, slug").eq("is_agency", false);
+  const { data: clientOrgs, error: orgsErr } = await admin.from("organizations").select("id, slug").eq("is_agency", false);
+  if (orgsErr) {
+    return NextResponse.json({ ok: false, refresh, error: `Could not list client orgs: ${orgsErr.message}` }, { status: 500 });
+  }
   const results: Record<string, unknown> = {};
   for (const org of clientOrgs ?? []) {
     const learn = await generateLearnings(admin, null, org.id);
-    results[org.slug] = learn.error ? { error: learn.error, status: learn.status } : "generated";
+    // Surface the per-run summary (counts, dropped-as-untraceable, flagged
+    // categories, and the all-dropped signal) — there's no logger here, so a
+    // run that produced nothing traceable must be visible in the response.
+    results[org.slug] = learn.error ? { error: learn.error, status: learn.status } : (learn.summary ?? "generated");
   }
   return NextResponse.json({ ok: true, refresh, learnings: results });
 }

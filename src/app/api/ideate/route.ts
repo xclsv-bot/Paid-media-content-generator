@@ -7,6 +7,7 @@ import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
 import { findNearDuplicate, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
+import { sourceRef } from "@/lib/loop/sourceRef";
 import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
@@ -113,8 +114,11 @@ export async function POST(req: Request) {
   }
 
   // Golden examples: the winning scripts themselves — the patterns to build on.
+  // Each is labeled with its source ref so a `golden:<id>` a learnings "do_more"
+  // directive cites resolves to the actual script here, in the same prompt —
+  // the ref stops being an inert token the model can't follow.
   const goldenLine = (g: GoldenExample) =>
-    `• "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`;
+    `• [${sourceRef("golden", g.creative_id)}] "${g.dimensions?.hook_line ?? "?"}" — ${g.dimensions?.family ?? "?"} / ${g.dimensions?.hook_angle ?? "?"} / ${g.dimensions?.sport ?? "?"}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`;
   const goldenBlock = golden.error
     ? `(golden set unavailable: ${golden.error})`
     : golden.examples.length
@@ -128,8 +132,8 @@ export async function POST(req: Request) {
     ? `(bad-example store unavailable: ${bad.error})`
     : bad.examples.length
       ? [
-          losers.length ? `PROVEN LOSERS (mature, volume-gated, CPT well over target):\n${losers.map(badExampleLine).join("\n")}` : "",
-          rejections.length ? `COMPLIANCE REJECTIONS (scripts the reviewer failed — never repeat these mistakes):\n${rejections.map(badExampleLine).join("\n")}` : "",
+          losers.length ? `PROVEN LOSERS (mature, volume-gated, CPT well over target):\n${losers.map((b) => `[${sourceRef("loser", b.creative_id)}] ${badExampleLine(b)}`).join("\n")}` : "",
+          rejections.length ? `COMPLIANCE REJECTIONS (scripts the reviewer failed — never repeat these mistakes):\n${rejections.map((b) => `[${sourceRef("rejection", b.creative_id)}] ${badExampleLine(b)}`).join("\n")}` : "",
         ].filter(Boolean).join("\n\n")
       : EMPTY_BAD_NOTE;
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
