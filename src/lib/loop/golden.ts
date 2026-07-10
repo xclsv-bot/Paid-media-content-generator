@@ -53,10 +53,12 @@ export type GoldenExample = {
   captured_at: string;
 };
 
-// Diversity guard: does a proposed concept near-duplicate an existing golden
-// example? Match = same family + hook angle + format (trimmed, case-folded;
-// a null/empty value never matches). Returns the matching example's hook line
-// so the UI can say WHAT it duplicates — the concept is flagged, not dropped.
+// Diversity guard (advisory): does a proposed concept share a golden example's
+// family + hook angle + format? This is a CATEGORICAL match (trimmed, case-
+// folded; a null/empty value never matches) used to FLAG concepts in Ideate.
+// It is deliberately coarse — it cannot tell a genuine same-family/angle variant
+// (fresh hook) from a near-copy, so it is a hint, not an enforcement gate. The
+// enforcement gate is text-based: findDuplicateHook (below).
 export function findNearDuplicate(
   concept: { family?: string | null; angle?: string | null; format?: string | null },
   examples: GoldenExample[],
@@ -75,6 +77,70 @@ export function findNearDuplicate(
       (!cfmt || !norm(d.format) || norm(d.format) === cfmt)
     ) {
       return d.hook_line ?? e.creative_id;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Text-based near-duplication — the ENFORCEMENT gate.
+//
+// The categorical guard above can't distinguish "same family, fresh hook"
+// (which we WANT) from "restated the winner" (which we must block). This one
+// compares the actual hook text, so a same-family/angle variant with a genuinely
+// different hook passes while a near-copy of a golden hook is caught.
+//
+// THRESHOLD (flagged, tunable): NEAR_DUPLICATE_THRESHOLD = 0.8 on a word-level
+// Sørensen–Dice coefficient. 0.8 means "≥~80% of the significant words overlap".
+// Rationale: a near-copy typically changes 0–2 words of a ~6–10 word hook (Dice
+// ~0.85–1.0), while a real variant shares only incidental words (Dice < ~0.4).
+// It is a judgement call — raise it to be more permissive, lower it to be
+// stricter. Env-overridable via NEAR_DUPLICATE_THRESHOLD.
+export function nearDuplicateThreshold(): number {
+  const n = Number(process.env.NEAR_DUPLICATE_THRESHOLD);
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.8;
+}
+
+// Normalize to significant word tokens: lowercase, drop punctuation, and drop a
+// short list of function words so "stop guessing on your parlays" and "stop
+// guessing your parlays" read as the same idea.
+const STOPWORDS = new Set([
+  "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "for", "with",
+  "your", "you", "our", "is", "are", "it", "this", "that", "at", "by",
+]);
+function tokens(s: string | null | undefined): Set<string> {
+  return new Set(
+    (s ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w && !STOPWORDS.has(w)),
+  );
+}
+
+// Sørensen–Dice over the two token sets: 2·|A∩B| / (|A|+|B|), in [0,1].
+export function hookSimilarity(a: string | null | undefined, b: string | null | undefined): number {
+  const A = tokens(a);
+  const B = tokens(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return (2 * inter) / (A.size + B.size);
+}
+
+// Does `hookLine` restate any golden example's hook at/above the threshold?
+// Returns the matching golden hook (so callers can say WHAT it duplicates), else
+// null. This is the gate the concept-persist boundary enforces.
+export function findDuplicateHook(
+  hookLine: string | null | undefined,
+  examples: GoldenExample[],
+  threshold: number = nearDuplicateThreshold(),
+): string | null {
+  if (!hookLine || !hookLine.trim()) return null;
+  for (const e of examples) {
+    const goldenHook = e.dimensions?.hook_line;
+    if (goldenHook && hookSimilarity(hookLine, goldenHook) >= threshold) {
+      return goldenHook;
     }
   }
   return null;

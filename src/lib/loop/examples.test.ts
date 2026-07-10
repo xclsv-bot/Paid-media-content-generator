@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { findNearDuplicate, type GoldenExample } from "@/lib/loop/golden";
+import {
+  findNearDuplicate,
+  findDuplicateHook,
+  hookSimilarity,
+  nearDuplicateThreshold,
+  type GoldenExample,
+} from "@/lib/loop/golden";
 import { badExampleLine, type BadExample } from "@/lib/loop/bad";
 
 function golden(dims: Partial<GoldenExample["dimensions"]>): GoldenExample {
@@ -131,5 +137,49 @@ describe("badExampleLine", () => {
     expect(line).toContain('"The losing hook"');
     expect(line).toContain("Killed by the paid team");
     expect(line).not.toContain("rejected:");
+  });
+});
+
+
+// The goal's acceptance check, as a unit test: seed one golden hook, then a
+// deliberate near-copy (must be caught) and a same-family-different-hook variant
+// (must pass). findDuplicateHook is the enforcement gate the concept-persist
+// boundary (/api/concepts) uses.
+describe("findDuplicateHook (enforcement gate)", () => {
+  const goldenSet = [
+    golden({ family: "Parlay", hook_angle: "Stop guessing", hook_line: "Stop guessing your parlays — see the injury data first" }),
+  ];
+
+  it("catches a deliberate near-copy of a golden hook", () => {
+    const nearCopy = "Stop guessing on your parlays — see the injury data";
+    expect(findDuplicateHook(nearCopy, goldenSet)).not.toBeNull();
+  });
+
+  it("admits a same-family variant with a genuinely different hook", () => {
+    const variant = "The one injury note your sportsbook quietly hides from you";
+    expect(findDuplicateHook(variant, goldenSet)).toBeNull();
+  });
+
+  it("returns null for an empty hook or empty golden set", () => {
+    expect(findDuplicateHook("", goldenSet)).toBeNull();
+    expect(findDuplicateHook("anything at all here", [])).toBeNull();
+  });
+
+  it("respects the threshold argument", () => {
+    // A loosely-related hook sits between: caught at a low threshold, admitted at the default.
+    const loose = "Stop losing your parlays to bad data";
+    expect(findDuplicateHook(loose, goldenSet, 0.35)).not.toBeNull();
+    expect(findDuplicateHook(loose, goldenSet, nearDuplicateThreshold())).toBeNull();
+  });
+});
+
+describe("hookSimilarity", () => {
+  it("scores a near-copy high and an unrelated hook low", () => {
+    const a = "Stop guessing your parlays — see the injury data first";
+    expect(hookSimilarity(a, "Stop guessing on your parlays, see the injury data")).toBeGreaterThan(0.8);
+    expect(hookSimilarity(a, "Meet the creators behind the community")).toBeLessThan(0.2);
+  });
+  it("ignores case, punctuation, and function words", () => {
+    expect(hookSimilarity("See the DATA!!!", "see data")).toBe(1);
   });
 });

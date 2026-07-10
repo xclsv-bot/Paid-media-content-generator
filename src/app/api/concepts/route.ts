@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { getGoldenExamples, findDuplicateHook } from "@/lib/loop/golden";
 
 const ARCHETYPES = ["Qualifier", "Broad-appeal", "Mixed"];
 
@@ -45,6 +46,26 @@ export async function POST(req: Request) {
   const archetype = ARCHETYPES.includes(b.archetype) ? b.archetype : null;
 
   const supabase = await createClient();
+
+  // Diversity gate: a concept that restates a proven golden hook must not reach
+  // persistence — it would generate a near-copy script and pollute the very set
+  // it was cloned from. Text similarity (not the coarse family/angle flag) so a
+  // genuine same-family variant with a fresh hook still passes. Staff can force a
+  // deliberate near-copy with allow_duplicate:true, which is recorded intent.
+  if (!b.allow_duplicate) {
+    const { examples } = await getGoldenExamples(supabase, b.org_id, 50);
+    const dup = findDuplicateHook(b.hook_line, examples);
+    if (dup) {
+      return NextResponse.json(
+        {
+          error: `This hook near-duplicates a golden example ("${dup}"). Vary the hook, or resubmit with allow_duplicate:true to override.`,
+          duplicate_of: dup,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const concept_family_id = await resolveFamily(supabase, b.org_id, b.family);
 
   const { data, error } = await supabase
