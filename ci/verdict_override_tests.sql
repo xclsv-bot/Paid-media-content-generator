@@ -16,13 +16,14 @@
 -- ---- fixtures: one ad name, three flights written at different times ----
 -- AD_X: an older dated report GRADUATE, a newer null-flight user KILL, and a
 -- still-newer 'auto' row (which must NOT count as an override).
-insert into public.creative_metrics (ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
-  ('OVR_AD_X', 'Week of Jul 1',  '2026-07-01', 'GRADUATE',     'report', '2026-07-01T00:00:00Z'),
-  ('OVR_AD_X', 'default',         null,         'KILL',         'user',   '2026-07-08T00:00:00Z'),
-  ('OVR_AD_X', 'Week of Jul 13', '2026-07-13', 'KEEP_TESTING', 'auto',   '2026-07-13T00:00:00Z');
+-- org_id is NOT NULL since 0026_metrics_org; use the seeded client org 'outlier'.
+insert into public.creative_metrics (org_id, ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'Week of Jul 1',  '2026-07-01', 'GRADUATE',     'report', '2026-07-01T00:00:00Z'),
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'default',         null,         'KILL',         'user',   '2026-07-08T00:00:00Z'),
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'Week of Jul 13', '2026-07-13', 'KEEP_TESTING', 'auto',   '2026-07-13T00:00:00Z');
 -- AD_Y: only an 'auto' row — must yield no override at all.
-insert into public.creative_metrics (ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
-  ('OVR_AD_Y', 'Week of Jul 1', '2026-07-01', 'GRADUATE', 'auto', '2026-07-01T00:00:00Z');
+insert into public.creative_metrics (org_id, ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_Y', 'Week of Jul 1', '2026-07-01', 'GRADUATE', 'auto', '2026-07-01T00:00:00Z');
 
 -- The exact override-map query refreshAll issues (.in + .not + two .order calls).
 create or replace function pg_temp.override_for(p_ad text)

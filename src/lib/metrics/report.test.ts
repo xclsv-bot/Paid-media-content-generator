@@ -91,3 +91,17 @@ describe("parseReport", () => {
     expect(warnings.join(" ")).toMatch(/mystery/i);
   });
 });
+
+describe("parseVerdict vocabulary (real report)", () => {
+  it("maps the graduation report's verdicts", () => {
+    const text = [
+      "Ad name\tVerdict",
+      "A\tITERATE",
+      "B\tSTOP_TEST",
+      "C\tKEEP_TESTING",
+      "D\tPromote",
+    ].join("\n");
+    const { rows } = parseReport(text, "Week of Jul 6");
+    expect(rows.map((r) => r.verdict)).toEqual(["ITERATE", "KILL", "KEEP_TESTING", "GRADUATE"]);
+  });
+});

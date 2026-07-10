@@ -62,11 +62,38 @@ export async function POST(req: Request) {
 
   const supabase = await createClient();
 
-  // The existing row for this (ad_name, flight_label). Omitted fields fall back
-  // to it, so a partial patch preserves everything it doesn't mention.
+  // creative_metrics is org-scoped since 0026, but this single-row path carries
+  // no org in the body. Derive it: the creative that owns this ad_name, else an
+  // existing metric row for the ad. No org resolvable = nothing valid to write
+  // (org_id is NOT NULL). Real ad names encode brand + date, so they don't
+  // collide across orgs — the first match is the owner.
+  const { data: ownerCreative } = await supabase
+    .from("creatives")
+    .select("org_id")
+    .eq("ad_name", adName)
+    .not("org_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+  let orgId = ownerCreative?.org_id ?? null;
+  if (!orgId) {
+    const { data: anyMetric } = await supabase
+      .from("creative_metrics")
+      .select("org_id")
+      .eq("ad_name", adName)
+      .limit(1)
+      .maybeSingle();
+    orgId = anyMetric?.org_id ?? null;
+  }
+  if (!orgId) {
+    return NextResponse.json({ error: "No organization found for this ad_name." }, { status: 400 });
+  }
+
+  // The existing row for this (org, ad_name, flight_label). Omitted fields fall
+  // back to it, so a partial patch preserves everything it doesn't mention.
   const { data: existing } = await supabase
     .from("creative_metrics")
     .select("flight_start, spend, conversions, cpa, ctr, bau_cpa, reason, verdict, verdict_source")
+    .eq("org_id", orgId)
     .eq("ad_name", adName)
     .eq("flight_label", flightLabel)
     .maybeSingle();
@@ -114,6 +141,7 @@ export async function POST(req: Request) {
   }
 
   const row = {
+    org_id: orgId,
     ad_name: adName,
     flight_label: flightLabel,
     flight_start: flightStart,
@@ -130,7 +158,7 @@ export async function POST(req: Request) {
 
   const { data: metric, error } = await supabase
     .from("creative_metrics")
-    .upsert(row, { onConflict: "ad_name,flight_label" })
+    .upsert(row, { onConflict: "org_id,ad_name,flight_label" })
     .select("ad_name, flight_label, spend, conversions, cpa, ctr, verdict, verdict_source")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -35,7 +35,7 @@ const CONCEPT_SCHEMA = {
           // Naming-convention slots — these compose the ad name that joins the
           // concept to the weekly report, so every concept must carry them.
           format: { type: "string", enum: ["Video", "Short Video"] },
-          talent: { type: "string", enum: ["NoFace", "Face"] },
+          talent: { type: "string", enum: ["No Face", "Face"] },
           theme: { type: "string", enum: ["Information", "Winning", "Process", "Product", "Community"] },
         },
         required: ["family", "hook", "angle", "archetype", "sport", "feature", "hypothesis", "format", "talent", "theme"],
@@ -160,7 +160,7 @@ ${learnBlock || ""}
 
 ${patternsBlock || ""}
 
-When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, a one-sentence hypothesis stating what it tests and why you expect it to work, and the three naming-convention slots: format (Video = full-length 9:16; Short Video = quick cutdown), talent (Face = creator on camera; NoFace = screen-record/faceless), and theme (Information, Winning, Process, Product, or Community — the emotional register of the hook). Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
+When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, a one-sentence hypothesis stating what it tests and why you expect it to work, and the three naming-convention slots: format (Video = full-length 9:16; Short Video = quick cutdown), talent (Face = creator on camera; No Face = screen-record/faceless), and theme (Information, Winning, Process, Product, or Community — the emotional register of the hook). Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
   const apiMessages = messages.map((m) => ({
     role: m.role === "ai" ? ("assistant" as const) : ("user" as const),

@@ -1,7 +1,7 @@
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
-import VideoAssetCard from "@/components/VideoAssetCard";
+import VideoGallery from "@/components/VideoGallery";
 import ReviewCard, { type ReviewComment } from "@/components/ReviewCard";
 
 export const dynamic = "force-dynamic";
@@ -90,10 +90,8 @@ export default async function ReviewPage() {
               <section key={c.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <div className="text-xs uppercase tracking-wide text-white/40">{famName(c.concept_families)}</div>
                 <h2 className="mt-0.5 text-lg font-medium">{c.hook_line}</h2>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {videos.map((v) => (
-                    <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} />
-                  ))}
+                <div className="mb-3">
+                  <VideoGallery videos={videos.map((v) => ({ ...v, canDelete: true }))} />
                 </div>
                 <ReviewCard
                   creativeId={c.id}

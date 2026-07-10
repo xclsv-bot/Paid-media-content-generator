@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
 import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/metrics/perf";
 import VideoUploader from "@/components/VideoUploader";
-import VideoAssetCard from "@/components/VideoAssetCard";
+import VideoGallery from "@/components/VideoGallery";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
@@ -45,7 +45,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   if (!creative) notFound();
 
   const [{ data: assets }, { data: perf }, { data: scripts }, { data: refs }] = await Promise.all([
-    supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at, transcript, transcript_status").eq("creative_id", id).order("uploaded_at", { ascending: false }),
+    supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at, uploaded_by, transcript, transcript_status").eq("creative_id", id).order("uploaded_at", { ascending: false }),
     supabase.from("creative_performance").select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated").eq("creative_id", id).single(),
     supabase.from("scripts").select("id, body, source, status, version, model, created_at").eq("concept_id", id).order("version", { ascending: false }),
     supabase.from("concept_references").select("id, kind, url, storage_path, label").eq("concept_id", id).order("created_at", { ascending: true }),
@@ -81,6 +81,9 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
     (assets ?? []).map(async (a) => ({
       id: a.id, fileName: a.file_name, versionLabel: a.version_label,
       streamUrl: await createSignedStream(a.storage_path).catch(() => null),
+      // Uploader removes their own accidental cut; staff remove any. The API
+      // and RLS (va_creator_delete, 0025) re-check, incl. the published guard.
+      canDelete: staff || (creator && a.uploaded_by === user?.id),
       transcript: a.transcript as string | null,
       transcriptStatus: a.transcript_status as string | null,
     })),
@@ -164,9 +167,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
                 <span className="px-2.5 text-xs text-white/40">{creative.idea_status === "Backlog" ? "Not in a cycle yet" : "In production — no cut yet"}</span>
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
-                {videos.map((v) => <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} canDelete={staff} transcript={v.transcript} transcriptStatus={v.transcriptStatus} />)}
-              </div>
+              <VideoGallery videos={videos} columns={1} defaultOpen={videos.length === 1} />
             )}
             {(staff || creator) && <div className="mt-3"><VideoUploader creativeId={creative.id} /></div>}
           </div>

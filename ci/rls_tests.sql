@@ -250,4 +250,47 @@ begin
   raise notice 'ok - organizations: staff sees all orgs';
 end $$;
 
+-- 17) creator upload deletion (0025): a creator may delete their OWN upload on
+-- an assigned, UNPUBLISHED concept — never someone else's upload, never a
+-- published cut.
+do $$
+declare n int;
+begin
+  insert into public.video_assets (id, creative_id, storage_path, file_name, version_label, uploaded_by) values
+    ('deadbeef-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/v1/own.mp4',   'own.mp4',   'v1', '33333333-3333-3333-3333-333333333333'),
+    ('deadbeef-0000-0000-0000-000000000002', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/v1/staff.mp4', 'staff.mp4', 'v1', '11111111-1111-1111-1111-111111111111');
+
+  perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
+  set local role authenticated;
+  delete from public.video_assets where id = 'deadbeef-0000-0000-0000-000000000001';
+  delete from public.video_assets where id = 'deadbeef-0000-0000-0000-000000000002';
+  reset role;
+
+  select count(*) into n from public.video_assets where id = 'deadbeef-0000-0000-0000-000000000001';
+  if n <> 0 then raise exception 'FAIL: creator could not delete own upload on unpublished concept'; end if;
+  select count(*) into n from public.video_assets where id = 'deadbeef-0000-0000-0000-000000000002';
+  if n <> 1 then raise exception 'FAIL: creator deleted another user''s upload'; end if;
+
+  -- publish the concept; the creator's own re-upload must now be undeletable
+  update public.deliverables set production_status = 'Delivered'
+   where concept_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  insert into public.video_assets (id, creative_id, storage_path, file_name, version_label, uploaded_by) values
+    ('deadbeef-0000-0000-0000-000000000003', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/v1/pub.mp4', 'pub.mp4', 'v1', '33333333-3333-3333-3333-333333333333');
+
+  perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
+  set local role authenticated;
+  delete from public.video_assets where id = 'deadbeef-0000-0000-0000-000000000003';
+  reset role;
+
+  select count(*) into n from public.video_assets where id = 'deadbeef-0000-0000-0000-000000000003';
+  if n <> 1 then raise exception 'FAIL: creator deleted a published cut'; end if;
+  raise notice 'ok - creator deletes own unpublished upload only (0025)';
+
+  -- restore fixture state for downstream suites
+  delete from public.video_assets where id in
+    ('deadbeef-0000-0000-0000-000000000002', 'deadbeef-0000-0000-0000-000000000003');
+  update public.deliverables set production_status = 'Assigned'
+   where concept_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+end $$;
+
 \echo 'All RLS assertions passed.'
