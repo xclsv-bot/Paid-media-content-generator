@@ -4,22 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchJson } from "@/lib/http";
 import { parseSourceRef, SOURCE_KIND_LABEL } from "@/lib/loop/sourceRef";
-
-export type Rec = {
-  directive: string;
-  sources: string[];
-  metric: string;
-};
-
-export type Learning = {
-  id: string;
-  narrative: string;
-  do_more: Rec[] | null;
-  do_less: Rec[] | null;
-  explore: Rec[] | null;
-  watchouts: Rec[] | null;
-  created_at: string;
-};
+// One definition of these types (learnings.ts) — the panel and the server that
+// feeds it (performance/page.tsx) share it, so a shape change can't drift the UI.
+// Type-only import: erased at build, pulls no server code into the client bundle.
+import type { Rec, Learning } from "@/lib/loop/learnings";
 
 export default function LearningsPanel({
   learning,
