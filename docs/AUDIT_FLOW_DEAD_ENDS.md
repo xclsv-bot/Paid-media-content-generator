@@ -264,6 +264,50 @@ state (as distinct from the harmless "no learnings" case in C2).
 
 ---
 
+## Checker pass — Finding B3 (surfaced by the independent runner)
+
+### The creator cannot see the reviewer's change-request feedback — revision instructions are written to a store no creator-facing screen renders
+
+**Severity: High** (the role that must act on the request is the only one with no surface showing it — insider/out-of-band knowledge required to proceed)
+
+This finding was not in the first five passes; the independent checker surfaced it, and it is
+verified true against the code. It sits in Flow 2, in the **revision loop** that follows
+queue → upload → status flip, and is distinct from B1 (empty queue) and B2 (unsignalled flip).
+
+**Repro path**
+1. Creator uploads a cut and sets status to "Submitted."
+2. Staff open **Review** (`/review`), click **"Request changes"** and type the reason in the
+   comment box (`src/components/ReviewCard.tsx:84-86` for the button, `:108-119` for the box).
+   Staff separately flip the deliverable's `production_status` to "In revision" on This Week.
+3. Creator returns to **My Queue** and clicks **Open brief** (`/creatives/[id]`) to find out
+   what to fix.
+
+**Observed state**
+- "Request changes" sets the approval state via `POST /api/creatives/[id]/approval`
+  (`src/components/ReviewCard.tsx:39-42`), and the typed reason is written to the **`comments`**
+  table via `POST /api/creatives/[id]/comments`
+  (`src/components/ReviewCard.tsx:60-63` → `src/app/api/creatives/[id]/comments/route.ts:22`).
+- The `comments` table is read on the staff **Review** page (`src/app/(staff)/review/page.tsx:44`)
+  and on the **client** portal (`src/lib/client/data.ts:28`, with approval state at
+  `src/lib/client/data.ts:111`). Both staff and client can read the feedback.
+- The **creator's** own concept page loads **`production_notes`** for the DiscussionThread
+  (`src/app/creatives/[id]/page.tsx:71-77`) — a *different* table — and never queries
+  `comments` or the `approvals` state. My Queue shows only `production_status`
+  (`DeliverableStatusSelect`), and the concept page's status pills are `idea_status` /
+  `creative.status`, neither of which is the review approval state.
+- Net: the creator sees a bare "In revision" with **no reason, no reviewer comment, and no
+  approval state** anywhere they can reach.
+
+**Why it's a dead end:** the person who must act on "Request changes" is the only role with no
+surface showing the change request — while both staff and the client can read it. The revision
+loop can only proceed via out-of-band communication (Slack/email) or a staff member manually
+re-typing the note into the separate DiscussionThread. It is High rather than Blocking only
+because the creator can still re-upload a blind guess.
+
+**Fix is a separate design decision** — out of scope.
+
+---
+
 ## Coverage summary (for the independent checker)
 
 Walk each flow using only this doc; every state below should already be recorded.
@@ -274,6 +318,7 @@ Walk each flow using only this doc; every state below should already be recorded
 | 1. Discoverability | Winners from This Week ("Proven" slot) + from Ideate | **A2** | High | Yes — dead chip; no contextual path to Winners |
 | 2. Creator path | Empty queue | **B1** | Blocking | Yes — no CTA, hint hidden from creators |
 | 2. Creator path | Upload → status flip | **B2** | Medium | Soft — flip is required but unsignalled (design opinion flagged) |
+| 2. Creator path | Revision loop (change request) | **B3** | High | Yes — reviewer feedback written to a store the creator's screens never render |
 | 3. Empty/error | Winners empty cache + refresh | **C1** | High | Yes — no-op + misleading "Cached 0", no diagnosis |
 | 3. Empty/error | Ideate with no learnings | **C2** | — | No — degrades gracefully (verified) |
 | 3. Empty/error | Ideate with no client org | **C3** | Blocking | Yes — Send silently no-ops |
