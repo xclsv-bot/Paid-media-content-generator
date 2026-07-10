@@ -43,10 +43,16 @@ export function normalizeRecs(v: unknown): Rec[] {
 // never throws). Must filter by org_id explicitly — callers on the
 // service-role (admin) client bypass RLS entirely, so this is the only thing
 // stopping one org's learnings from leaking into another's.
+//
+// Selects "*" rather than an explicit column list on purpose: migrations here
+// deploy manually and separately from code, so a build that names a not-yet-
+// added column (e.g. `explore` before 0027 runs) would error the query and make
+// EVERY learning silently vanish. "*" returns whatever columns exist; a newer
+// field is simply absent (normalizeRecs → []) until its migration lands.
 export async function latestLearnings(supabase: SupabaseClient, orgId: string): Promise<Learning | null> {
   const { data } = await supabase
     .from("learnings")
-    .select("id, narrative, do_more, do_less, explore, watchouts, created_at")
+    .select("*")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -75,12 +81,16 @@ function recLine(r: Rec): string {
 }
 
 // Formats the latest learnings as a prompt block for the reviewer + Ideate.
+// Deliberately OMITS `narrative`: it is free prose that cites no rows, so
+// feeding it to downstream agents would reintroduce exactly the untraceable
+// advice the traceable recs replaced. The narrative stays human-facing (the
+// Performance page renders it); every line an agent grounds on carries a source
+// ref back to a golden/loser/rejection creative_id or an explore/validating slot.
 export function learningsPromptBlock(l: Learning | null): string {
   if (!l) return "";
   const list = (arr: Rec[] | null) => (arr && arr.length ? arr.map(recLine).join("\n") : "");
   return [
     "CURRENT LEARNINGS (what's winning right now — weight these heavily; each directive cites the backing creative_id(s) or explore slot):",
-    l.narrative,
     l.do_more?.length ? `Do more:\n${list(l.do_more)}` : "",
     l.do_less?.length ? `Do less:\n${list(l.do_less)}` : "",
     l.explore?.length ? `Explore (unfilled slots):\n${list(l.explore)}` : "",
