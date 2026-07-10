@@ -3,7 +3,7 @@ import { defaultTargetCents, rollupBy, type CreativePerf } from "@/lib/metrics/p
 import { isMature, minTrials, rankScore } from "@/lib/loop/attribution";
 import { getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { getBadExamples, type BadExample } from "@/lib/loop/bad";
-import { getFamilySlots } from "@/lib/loop/slots";
+import { computeFamilySlots } from "@/lib/loop/slots";
 import { sourceRef } from "@/lib/loop/sourceRef";
 
 type Dim = {
@@ -72,9 +72,10 @@ function dollars(cents: number | null | undefined): string {
 // that bypasses RLS entirely, so this is the only thing standing between one
 // org's scripts/CPT figures and another's.
 export async function getLearningInputs(supabase: SupabaseClient, orgId: string): Promise<LearningInputs> {
-  const [{ data: perfRows }, { data: dimRows }] = await Promise.all([
+  const [{ data: perfRows }, { data: dimRows }, { data: famRows }] = await Promise.all([
     supabase.from("creative_performance").select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated, first_date").eq("org_id", orgId),
     supabase.from("creatives").select("id, hook_line, hook_angle, archetype, sport, feature_pillar, format, cpt_target_cents, concept_families(name)").eq("org_id", orgId),
+    supabase.from("concept_families").select("name").eq("org_id", orgId).order("name"),
   ]);
 
   const dims = new Map<string, Dim>();
@@ -102,11 +103,18 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
   //   watchouts ← Bad-Example compliance rejections + Validating slots
   //   explore   ← Untested family slots (the named unfilled slots)
   // None is an inline CPT slice over raw performance (which lacks the gates).
-  const [golden, bad, slotsRes] = await Promise.all([
+  const [golden, bad] = await Promise.all([
     getGoldenExamples(supabase, orgId, 6),
     getBadExamples(supabase, orgId, 6),
-    getFamilySlots(supabase, orgId),
   ]);
+
+  // Family slots are computed from the perf + creatives rows already fetched
+  // above (via the pure computeFamilySlots), not a second getFamilySlots round-
+  // trip — that would re-query creative_performance and creatives a second time.
+  const slotDimById = new Map<string, { family: string | null; targetCents: number | null }>();
+  for (const [id, d] of dims) slotDimById.set(id, { family: famName(d), targetCents: d.cpt_target_cents });
+  const familyNames = ((famRows ?? []) as { name: string }[]).map((f) => f.name);
+  const slots = computeFamilySlots(familyNames, perf, slotDimById, now);
 
   const goldenSrc: RecSource[] = golden.examples.map((g: GoldenExample) => {
     const d = g.dimensions ?? {};
@@ -151,7 +159,7 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
   // Slots: Untested → explore (the named unfilled slots), Validating → watchout
   // (has matured data but hasn't cleared the bar — small-sample risk). The slot
   // ID a rec cites is the family NAME (slots aren't a per-creative row).
-  const exploreSrc: RecSource[] = slotsRes.slots
+  const exploreSrc: RecSource[] = slots
     .filter((s) => s.status === "Untested")
     .map((s) => ({
       id: sourceRef("explore", s.family),
@@ -159,7 +167,7 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
       metric: "unfilled explore slot",
       prompt: `[${sourceRef("explore", s.family)}] Untested family — no matured, trial-gated cohort yet`,
     }));
-  const validatingSrc: RecSource[] = slotsRes.slots
+  const validatingSrc: RecSource[] = slots
     .filter((s) => s.status === "Validating")
     .map((s) => ({
       id: sourceRef("validating", s.family),

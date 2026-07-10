@@ -117,13 +117,19 @@ Write the current, actionable learnings for the next round of creative. HARD RUL
 // may cite either a rejection or a Validating-slot ref, so both candidate sets
 // are pooled. Exported for the seam test.
 export function applyModelResponse(
-  parsed: { do_more?: unknown; do_less?: unknown; explore?: unknown; watchouts?: unknown },
+  parsed: unknown,
   inputs: LearningInputs,
 ): { do_more: Rec[]; do_less: Rec[]; explore: Rec[]; watchouts: Rec[]; dropped: number } {
-  const doMore = traceableRecs(parsed.do_more, inputs.golden);
-  const doLess = traceableRecs(parsed.do_less, inputs.losers);
-  const explore = traceableRecs(parsed.explore, inputs.explore);
-  const watchouts = traceableRecs(parsed.watchouts, [...inputs.rejections, ...inputs.validating]);
+  // Tolerate a non-object payload (e.g. JSON.parse("null") or a bare array):
+  // each category just reads undefined and drops to zero recs, rather than
+  // throwing on a property access and degrading the whole run to a 500.
+  const p = (parsed && typeof parsed === "object" ? parsed : {}) as {
+    do_more?: unknown; do_less?: unknown; explore?: unknown; watchouts?: unknown;
+  };
+  const doMore = traceableRecs(p.do_more, inputs.golden);
+  const doLess = traceableRecs(p.do_less, inputs.losers);
+  const explore = traceableRecs(p.explore, inputs.explore);
+  const watchouts = traceableRecs(p.watchouts, [...inputs.rejections, ...inputs.validating]);
   return {
     do_more: doMore.recs,
     do_less: doLess.recs,

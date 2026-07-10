@@ -186,6 +186,13 @@ describe("prompt ⇄ validator seam — the regression this bug taught us", () =
     expect(applied.watchouts.map((r) => r.sources[0])).toEqual(["rejection:cr_rej_1", "validating:Demystify"]);
   });
 
+  it("tolerates a non-object model payload without throwing", () => {
+    for (const bad of [null, undefined, "oops", 42, []]) {
+      const applied = applyModelResponse(bad, inputs);
+      expect(applied).toEqual({ do_more: [], do_less: [], explore: [], watchouts: [], dropped: 0 });
+    }
+  });
+
   it("flags every category that has no backing data", () => {
     const empty = sampleInputs({ golden: [], losers: [], explore: [], rejections: [], validating: [] });
     const { flags } = buildLearningsPrompt(empty, "Acme");
