@@ -48,7 +48,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   // Reported performance comes straight from the weekly-report rows, joined by
   // the org stamp + this concept's ad name (the old creative_performance view
   // joined by name alone). No ad name → the .eq("") matches nothing.
-  const [{ data: assets }, { data: metricRows }, { data: scripts }, { data: refs }] = await Promise.all([
+  const [{ data: assets }, { data: metricRows }, { data: scripts }, { data: refs }, { data: approval }, { data: reviewComments }] = await Promise.all([
     supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at, uploaded_by, transcript, transcript_status").eq("creative_id", id).order("uploaded_at", { ascending: false }),
     supabase
       .from("creative_metrics")
@@ -57,7 +57,14 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
       .eq("ad_name", creative.ad_name ?? ""),
     supabase.from("scripts").select("id, body, source, status, version, model, created_at").eq("concept_id", id).order("version", { ascending: false }),
     supabase.from("concept_references").select("id, kind, url, storage_path, label").eq("concept_id", id).order("created_at", { ascending: true }),
-    supabase.from("approvals").select("state").eq("creative_id", id).maybeSingle(),
+    // Review feedback, creator-only (staff act on /review; the client portal
+    // has its own render). RLS 0033 scopes the reads to assigned concepts.
+    creator
+      ? supabase.from("approvals").select("state").eq("creative_id", id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    creator
+      ? supabase.from("comments").select("id, body, created_at, author_id").eq("creative_id", id).order("created_at", { ascending: true })
+      : Promise.resolve({ data: null }),
   ]);
 
   // Latest reviewer scorecard for the current (latest) script version.
@@ -238,6 +245,14 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
             <WeekAssignment conceptId={creative.id} slots={weekSlots} cycles={weekCycles} people={weekPeople} />
           )}
 
+          {creator && (
+            <ReviewFeedbackCard
+              state={(approval as { state: string } | null)?.state ?? "Pending"}
+              comments={(reviewComments as { id: string; body: string; created_at: string; author_id: string }[] | null) ?? []}
+              currentUserId={user!.id}
+            />
+          )}
+
           {!creator && (
             <ReportedPerformance
               rows={(metricRows as ReportRowLite[]) ?? []}
@@ -335,6 +350,52 @@ function WeekPagerBar({
         <Link href={`/creatives/${next.concept_id}`} className={navBtn} title={next.hook_line ?? undefined}>Next →</Link>
       ) : (
         <span className={`${navBtn} pointer-events-none opacity-35`}>Next →</span>
+      )}
+    </div>
+  );
+}
+
+// The creator's view of the staff review verdict (state pill + the reviewer's
+// comments). Author names render as You/XCLSV — users-table RLS blocks a
+// creator from resolving other users' names (same rule as ReviewCard).
+function ReviewFeedbackCard({
+  state,
+  comments,
+  currentUserId,
+}: {
+  state: string;
+  comments: { id: string; body: string; created_at: string; author_id: string }[];
+  currentUserId: string;
+}) {
+  const pill: Record<string, string> = {
+    Approved: "bg-emerald-500/20 text-emerald-300",
+    "Changes requested": "bg-amber-500/20 text-amber-300",
+    Pending: "bg-white/10 text-white/60",
+  };
+  return (
+    <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="font-mono text-[11px] uppercase tracking-wide text-white/45">Review</span>
+        <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-semibold ${pill[state] ?? pill.Pending}`}>{state}</span>
+      </div>
+      {state === "Changes requested" && (
+        <p className="mb-3 text-[12.5px] leading-relaxed text-amber-200/90">
+          Fix the notes below and upload a new cut — it resubmits automatically. Questions? Use the discussion thread.
+        </p>
+      )}
+      {comments.length === 0 ? (
+        <p className="text-[12.5px] text-white/40">No review feedback yet.</p>
+      ) : (
+        <ul className="space-y-2 text-[13px]">
+          {comments.map((c) => (
+            <li key={c.id} className="rounded-[9px] bg-black/20 p-2.5">
+              <div className="text-[11px] text-white/40">
+                {c.author_id === currentUserId ? "You" : "XCLSV"} · {new Date(c.created_at).toLocaleString()}
+              </div>
+              <div className="mt-0.5 whitespace-pre-wrap text-white/80">{c.body}</div>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

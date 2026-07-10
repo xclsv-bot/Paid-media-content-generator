@@ -84,6 +84,15 @@ export default async function QueuePage() {
               Assignments happen on <Link href="/this-week" className="text-emerald-400 hover:underline">This Week</Link> — this page shows only concepts where you are the assignee.
             </p>
           )}
+          {/* No links here — a creator can only reach /queue and the briefs,
+              so pointing them at staff pages would just bounce them back. */}
+          {user.role === "creator" && (
+            <p className="mx-auto mt-1 max-w-md text-sm text-white/40">
+              Assignments come from the XCLSV team when a weekly cycle is planned — nothing you
+              need to do right now. When a concept is assigned to you it appears here with its
+              brief, due date, and upload slot. Expecting something? Ping your XCLSV contact.
+            </p>
+          )}
         </div>
       )}
 

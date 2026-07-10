@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { AUTO_SUBMIT_FROM } from "@/lib/deliverables";
 
 // POST /api/videos  — register a VideoAsset row AFTER the browser finished the
 // direct upload to storage. Staff, or a creator assigned to the concept
 // (RLS on video_assets enforces the assignment on insert).
+//
+// Side effect: a CREATOR upload auto-advances their deliverable(s) on this
+// concept to "Submitted" (from AUTO_SUBMIT_FROM states only — staff-owned
+// Approved/Delivered are never touched, staff uploads never flip). The flip
+// rides this request so "uploaded but never submitted" can't happen; the
+// response's `submitted` tells the UI whether it did.
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user || (!isStaff(user) && user.role !== "creator")) {
@@ -58,7 +65,22 @@ export async function POST(req: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ video: data }, { status: 201 });
+
+  // Auto-submit: non-fatal (the upload already succeeded). RLS
+  // (deliverables_creator_update) re-checks assignee = self.
+  let submitted = false;
+  if (user.role === "creator") {
+    const { data: flipped } = await supabase
+      .from("deliverables")
+      .update({ production_status: "Submitted", updated_at: new Date().toISOString() })
+      .eq("concept_id", creativeId)
+      .eq("assignee_id", user.id)
+      .in("production_status", AUTO_SUBMIT_FROM as string[])
+      .select("id");
+    submitted = (flipped?.length ?? 0) > 0;
+  }
+
+  return NextResponse.json({ video: data, submitted }, { status: 201 });
 }
 
 // GET /api/videos?org=<org_id>&transcribed=1 — recent production cuts that have
