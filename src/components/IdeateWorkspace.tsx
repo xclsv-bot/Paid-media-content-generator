@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { fetchJson } from "@/lib/http";
 import { composeAdName } from "@/lib/client/categorize";
 import { createClient } from "@/lib/supabase/client";
@@ -8,6 +9,10 @@ import { createClient } from "@/lib/supabase/client";
 const REF_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_REFERENCES_BUCKET || "references";
 type RefClip = { id: string; title: string | null; file_name: string; transcript: string | null; transcript_status: string | null };
 type VideoClip = { id: string; file_name: string; transcript: string | null; hook_line: string | null };
+type Grounding = {
+  learning: { created_at: string; do_more: string[] | null } | null;
+  winners_count: number;
+};
 
 type Concept = {
   family: string;
@@ -50,6 +55,8 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
   const [refBusy, setRefBusy] = useState(false);
   const [recentRefs, setRecentRefs] = useState<RefClip[]>([]);
   const [recentVideos, setRecentVideos] = useState<VideoClip[]>([]);
+  // "loading" → fetching; null → fetch failed (degrade to links only).
+  const [grounding, setGrounding] = useState<Grounding | "loading" | null>("loading");
 
   function flash(t: string) {
     setToast(t);
@@ -72,11 +79,25 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
       /* non-fatal */
     }
   }
+  // What grounds the agent (learnings + winners) for the selected client —
+  // informative, never blocking: on failure the panel degrades to bare links.
+  async function loadGrounding(org: string) {
+    setGrounding("loading");
+    try {
+      const res = await fetch(`/api/learnings?org=${encodeURIComponent(org)}`);
+      setGrounding(res.ok ? ((await res.json()) as Grounding) : null);
+    } catch {
+      setGrounding(null);
+    }
+  }
   useEffect(() => {
     loadRecent();
   }, []);
   useEffect(() => {
-    if (orgId) loadRecentVideos(orgId);
+    if (orgId) {
+      loadRecentVideos(orgId);
+      loadGrounding(orgId);
+    }
   }, [orgId]);
 
   // Attach a reference video → upload → Whisper transcript → add as a source.
@@ -135,7 +156,13 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
 
   async function send() {
     const text = composer.trim();
-    if (!text || busy || !orgId) return;
+    if (!text || busy) return;
+    // Never a silent no-op: without a client org the request can't be scoped
+    // (the page also blocks the zero-org state before this can render).
+    if (!orgId) {
+      flash("Pick a client first — no client organization is selected.");
+      return;
+    }
     const next = [...messages, { role: "user" as const, text }];
     setMessages(next);
     setComposer("");
@@ -225,6 +252,34 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
             ))}
           </select>
         </label>
+        {/* What already grounds the agent for this client — and where it lives. */}
+        <div className="mb-4 rounded-[9px] border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
+          <div className="mb-1 font-mono text-[9.5px] uppercase tracking-wide text-white/40">Grounding</div>
+          {grounding === "loading" ? (
+            <p className="text-[12.5px] text-white/40">Loading signals…</p>
+          ) : grounding ? (
+            <>
+              {grounding.learning ? (
+                <div className="text-[12.5px] text-white/65">
+                  <div>Learnings from {new Date(grounding.learning.created_at).toLocaleDateString()}</div>
+                  {(grounding.learning.do_more ?? []).slice(0, 3).map((x, i) => (
+                    <div key={i} className="truncate text-white/50" title={x}>• {x}</div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12.5px] text-white/40">No learnings yet for this client.</p>
+              )}
+              <p className="mt-1 text-[12.5px] text-white/50">
+                {grounding.winners_count > 0 ? `${grounding.winners_count} cached winner${grounding.winners_count === 1 ? "" : "s"}` : "No cached winners yet"}
+              </p>
+            </>
+          ) : null}
+          <div className="mt-1.5 flex gap-3 text-[12px]">
+            <Link href={`/performance?org=${organizations.find((o) => o.id === orgId)?.slug ?? ""}`} className="text-emerald-300 hover:underline">Learnings →</Link>
+            <Link href="/winners" className="text-emerald-300 hover:underline">Winners →</Link>
+          </div>
+        </div>
+
         <div className="mb-3 font-mono text-[11px] uppercase tracking-wider text-white/45">Context the agent uses</div>
         <div className="flex flex-col gap-2">
           {sources.length === 0 && <p className="text-[12.5px] text-white/40">No sources yet.</p>}

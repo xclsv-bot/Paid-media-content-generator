@@ -137,14 +137,28 @@ export default async function ThisWeekPage({
     .eq("is_agency", false)
     .order("display_name");
   const organizations = (orgsData ?? []) as Organization[];
+  // Performance keys its org selector on the SLUG, not the id.
+  const cycleOrgSlug = organizations.find((o) => o.id === selected?.org_id)?.slug ?? null;
 
   return (
     <main className="mx-auto max-w-6xl p-6">
-      <header className="mb-5">
-        <h1 className="text-2xl font-semibold">This Week</h1>
-        <p className="text-sm text-white/50">
-          The active weekly drop — assign creators, set due dates, track production.
-        </p>
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">This Week</h1>
+          <p className="text-sm text-white/50">
+            The active weekly drop — assign creators, set due dates, track production.
+          </p>
+        </div>
+        {/* The signals that should shape this week's slate live one hop away. */}
+        <div className="flex gap-3 text-[13px]">
+          <Link
+            href={cycleOrgSlug ? `/performance?org=${cycleOrgSlug}` : "/performance"}
+            className="text-emerald-300 hover:underline"
+          >
+            Learnings →
+          </Link>
+          <Link href="/winners" className="text-emerald-300 hover:underline">Winners →</Link>
+        </div>
       </header>
 
       {slots.length > 0 && (
@@ -159,9 +173,14 @@ export default async function ThisWeekPage({
             {slots.map((s) => {
               const label = `${s.family}${s.judged > 0 ? ` · ${s.hits}/${s.judged} hit` : ""}`;
               return s.status === "Proven" ? (
-                <span key={s.family} className={`rounded-full border px-2.5 py-1 text-[12px] ${SLOT_CHIP[s.status]}`} title={s.cpt != null ? `Cohort CPT $${s.cpt.toFixed(2)}` : undefined}>
-                  {label} · Proven
-                </span>
+                <Link
+                  key={s.family}
+                  href="/winners"
+                  className={`rounded-full border px-2.5 py-1 text-[12px] hover:border-emerald-300/60 ${SLOT_CHIP[s.status]}`}
+                  title={`${s.cpt != null ? `Cohort CPT $${s.cpt.toFixed(2)} — ` : ""}see the winners behind this family`}
+                >
+                  {label} · Proven →
+                </Link>
               ) : (
                 <Link
                   key={s.family}
