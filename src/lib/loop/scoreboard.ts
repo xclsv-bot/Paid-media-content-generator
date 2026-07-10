@@ -4,6 +4,7 @@ import { isMature, minTrials, rankScore } from "@/lib/loop/attribution";
 import { getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { getBadExamples, type BadExample } from "@/lib/loop/bad";
 import { getFamilySlots } from "@/lib/loop/slots";
+import { sourceRef } from "@/lib/loop/sourceRef";
 
 type Dim = {
   id: string;
@@ -111,11 +112,12 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
     const d = g.dimensions ?? {};
     const label = `"${d.hook_line ?? "?"}" — ${d.family ?? "?"} / ${d.hook_angle ?? "?"} / ${d.sport ?? "?"}`;
     const metric = `CPT ${dollars(g.cpt_cents)} vs ${dollars(g.target_cents)} target, ${g.results} trials`;
+    const ref = sourceRef("golden", g.creative_id);
     return {
-      id: `golden:${g.creative_id}`,
+      id: ref,
       label,
       metric,
-      prompt: `[golden:${g.creative_id}] ${label} · ${metric}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`,
+      prompt: `[${ref}] ${label} · ${metric}\n  Why it won: ${g.why_it_won}\n  Script: ${g.script.slice(0, 300)}`,
     };
   });
 
@@ -124,11 +126,12 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
     const d = b.dimensions ?? {};
     const label = `"${d.hook_line ?? "?"}" — ${d.family ?? "?"} / ${d.hook_angle ?? "?"} / ${d.sport ?? "?"}`;
     const metric = `CPT ${dollars(b.cpt_cents)} vs ${dollars(b.target_cents)} target, ${b.results ?? "?"} trials`;
+    const ref = sourceRef("loser", b.creative_id);
     return {
-      id: `loser:${b.creative_id}`,
+      id: ref,
       label,
       metric,
-      prompt: `[loser:${b.creative_id}] ${label} · ${metric} — ${b.reason}\n  Script: ${b.script.slice(0, 300)}`,
+      prompt: `[${ref}] ${label} · ${metric} — ${b.reason}\n  Script: ${b.script.slice(0, 300)}`,
     };
   });
 
@@ -136,11 +139,12 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
   const rejectionsSrc: RecSource[] = rejectionRows.map((b) => {
     const d = b.dimensions ?? {};
     const label = `"${d.hook_line ?? "?"}" — ${d.family ?? "?"}`;
+    const ref = sourceRef("rejection", b.creative_id);
     return {
-      id: `rejection:${b.creative_id}`,
+      id: ref,
       label,
       metric: "compliance rejection",
-      prompt: `[rejection:${b.creative_id}] ${label} — rejected: ${b.reason}`,
+      prompt: `[${ref}] ${label} — rejected: ${b.reason}`,
     };
   });
 
@@ -150,18 +154,18 @@ export async function getLearningInputs(supabase: SupabaseClient, orgId: string)
   const exploreSrc: RecSource[] = slotsRes.slots
     .filter((s) => s.status === "Untested")
     .map((s) => ({
-      id: `explore:${s.family}`,
+      id: sourceRef("explore", s.family),
       label: `${s.family} (no matured cohort yet)`,
       metric: "unfilled explore slot",
-      prompt: `[explore:${s.family}] Untested family — no matured, trial-gated cohort yet`,
+      prompt: `[${sourceRef("explore", s.family)}] Untested family — no matured, trial-gated cohort yet`,
     }));
   const validatingSrc: RecSource[] = slotsRes.slots
     .filter((s) => s.status === "Validating")
     .map((s) => ({
-      id: `validating:${s.family}`,
+      id: sourceRef("validating", s.family),
       label: `${s.family} (${s.hits}/${s.judged} hit)`,
       metric: `Validating: ${s.hits}/${s.judged} hit, CPT ${s.cpt != null ? `$${s.cpt.toFixed(2)}` : "—"}`,
-      prompt: `[validating:${s.family}] ${s.hits}/${s.judged} hit — matured but not yet proven`,
+      prompt: `[${sourceRef("validating", s.family)}] ${s.hits}/${s.judged} hit — matured but not yet proven`,
     }));
 
   return {

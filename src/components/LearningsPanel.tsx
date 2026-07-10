@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchJson } from "@/lib/http";
+import { parseSourceRef, SOURCE_KIND_LABEL } from "@/lib/loop/sourceRef";
 
 export type Rec = {
   directive: string;
@@ -62,8 +63,19 @@ export default function LearningsPanel({
               • {x.directive}
               {x.metric && <span className="text-white/45"> — {x.metric}</span>}
               {x.sources?.length ? (
-                <span className="ml-1 font-mono text-[10px] text-white/35" title="backing row IDs">
-                  [{x.sources.join(", ")}]
+                <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
+                  {x.sources.map((s) => {
+                    const ref = parseSourceRef(s);
+                    return (
+                      <span
+                        key={s}
+                        className="rounded border border-white/10 bg-white/[0.04] px-1 font-mono text-[9.5px] text-white/40"
+                        title={ref ? `${SOURCE_KIND_LABEL[ref.kind]} · ${ref.key}` : s}
+                      >
+                        {ref ? `${SOURCE_KIND_LABEL[ref.kind]}:${ref.key}` : s}
+                      </span>
+                    );
+                  })}
                 </span>
               ) : null}
             </li>

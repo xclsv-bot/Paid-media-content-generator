@@ -19,7 +19,11 @@ alter table public.learnings add column if not exists explore jsonb;
 
 -- sources are self-describing refs `<kind>:<key>` so a cold reader knows which
 -- store to query from the ref alone: golden|loser|rejection:<creative_id>,
--- explore|validating:<family name>.
+-- explore|validating:<family name>. Durability: the DURABLE retrieval target is
+-- the immutable row the key points at — creative_id in `creatives`, family name
+-- in `concept_families` — NOT the golden/bad example stores (rebuilt daily and
+-- prunable). The rec's own `metric` is the durable snapshot of the evidence.
+-- The ref format has one home in code: src/lib/loop/sourceRef.ts.
 comment on column public.learnings.do_more   is 'Rec[] { directive, sources:text[] (golden:<creative_id>), metric } — variant the proven winner';
 comment on column public.learnings.do_less   is 'Rec[] { directive, sources:text[] (loser:<creative_id>), metric } — stop repeating the proven loser';
 comment on column public.learnings.explore   is 'Rec[] { directive, sources:text[] (explore:<family>), metric } — fill the named unfilled slot';
