@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { isStaff, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { minResults, minSpendCents } from "@/lib/loop/config";
 import WinnersRefresh from "@/components/WinnersRefresh";
 import GoldenCurationButtons from "@/components/GoldenCurationButtons";
 
@@ -112,8 +113,15 @@ export default async function WinnersPage() {
 
       {rows.length === 0 && (
         <p className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No winners cached yet.{" "}
-          {staff ? "Import the weekly report on Performance, then hit Refresh cache." : ""}
+          No winners cached yet. A creative qualifies once its CPT is at/under target with at
+          least {minResults()} results and ${minSpendCents() / 100} spend.{" "}
+          {staff && (
+            <>
+              Import the weekly report on{" "}
+              <Link href="/performance" className="text-sky-300 hover:underline">Performance</Link>, then
+              hit Refresh cache — if the count stays at zero, nothing has cleared that bar yet.
+            </>
+          )}
         </p>
       )}
 

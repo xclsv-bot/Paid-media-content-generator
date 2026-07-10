@@ -22,7 +22,20 @@ export default async function IdeatePage() {
           Brainstorm with the agent using call transcripts, references, and performance signals — then push concepts straight into the bank.
         </p>
       </header>
-      <IdeateWorkspace organizations={organizations ?? []} />
+      {(organizations ?? []).length === 0 ? (
+        // Without a client org the workspace's Send can only no-op (every
+        // concept/learning/winner is org-scoped) — explain instead of render.
+        <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-white/50">
+          <p>No client organizations yet.</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-white/40">
+            Ideate brainstorms per client — every concept, learning, and winner is scoped to a
+            client org. Client orgs are provisioned by an admin (there&apos;s no in-app creation
+            yet); once one exists, this workspace unlocks.
+          </p>
+        </div>
+      ) : (
+        <IdeateWorkspace organizations={organizations ?? []} />
+      )}
     </main>
   );
 }
