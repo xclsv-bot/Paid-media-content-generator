@@ -146,6 +146,27 @@ export function findDuplicateHook(
   return null;
 }
 
+// Does a generated script BODY restate any golden example's script at/above the
+// threshold? The golden scripts are injected into the generation prompt, so the
+// writer can echo them; this is the output gate the script-persist boundary
+// (/api/concepts/:id/scripts/generate) enforces before saving. Returns the
+// duplicated golden hook line for the error message, else null. Same word-Dice
+// threshold as hooks — a near-verbatim restatement scores high; a brief that
+// uses the pattern in its own words scores low.
+export function findDuplicateScript(
+  body: string | null | undefined,
+  examples: GoldenExample[],
+  threshold: number = nearDuplicateThreshold(),
+): string | null {
+  if (!body || !body.trim()) return null;
+  for (const e of examples) {
+    if (e.script && hookSimilarity(body, e.script) >= threshold) {
+      return e.dimensions?.hook_line ?? e.creative_id;
+    }
+  }
+  return null;
+}
+
 // The consumable golden set FOR ONE ORG, best-first, pinned included,
 // tombstones excluded. orgId filters explicitly - service-role callers bypass
 // RLS, and one client's scripts must never ground another's prompts.

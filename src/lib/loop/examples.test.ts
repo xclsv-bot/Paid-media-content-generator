@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findNearDuplicate,
   findDuplicateHook,
+  findDuplicateScript,
   hookSimilarity,
   nearDuplicateThreshold,
   type GoldenExample,
@@ -181,5 +182,24 @@ describe("hookSimilarity", () => {
   });
   it("ignores case, punctuation, and function words", () => {
     expect(hookSimilarity("See the DATA!!!", "see data")).toBe(1);
+  });
+});
+
+
+describe("findDuplicateScript (output gate before persist)", () => {
+  const goldenScript =
+    "The concept: teach one research move before a parlay — pull the injury report and cut any leg with a questionable tag. Tone: confident, data-first. Two rules: never call it a lock; close with See the data first.";
+  const goldenSet = [{ ...golden({ family: "Parlay", hook_line: "See the data first" }), script: goldenScript }];
+
+  it("catches a generated body that restates a golden script nearly verbatim", () => {
+    const nearCopy =
+      "The concept: teach one research move before a parlay — pull the injury report and cut a leg with a questionable tag. Tone: confident and data-first. Two rules: never call it a lock, and close with See the data first.";
+    expect(findDuplicateScript(nearCopy, goldenSet)).not.toBeNull();
+  });
+
+  it("admits a distinct brief that uses the pattern in its own words", () => {
+    const distinct =
+      "The concept: show how a bettor rebuilds one slip after spotting a coach's press-conference hint about resting a starter. Tone: like a sharp friend, not a guru. Two rules: keep it about smarter homework; sign off with Do the homework.";
+    expect(findDuplicateScript(distinct, goldenSet)).toBeNull();
   });
 });

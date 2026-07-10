@@ -5,7 +5,7 @@ import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
 import { rubricText } from "@/lib/loop/rubric";
 import { insertNextScriptVersion } from "@/lib/scripts";
 import { getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
-import { getGoldenExamples } from "@/lib/loop/golden";
+import { getGoldenExamples, findDuplicateScript } from "@/lib/loop/golden";
 import { getBadExamples, badExampleLine } from "@/lib/loop/bad";
 
 export const maxDuration = 300; // capped to plan max
@@ -133,23 +133,49 @@ Return the brief in "body" (a few short paragraphs a creator reads in 30 seconds
   }
 
   try {
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: GEN_SCHEMA } },
-      system,
-      messages: [{ role: "user", content: `CONCEPT\n${context}` }],
-    });
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
+    // Generate, then verify the output isn't a near-copy of a golden script we
+    // fed the writer. The golden scripts are IN the prompt, so echoing them is a
+    // real failure mode — no near-duplicate may reach persistence. One hardened
+    // retry, then reject (don't save) rather than pollute the set it cloned.
+    const generate = async (extra: string) => {
+      const response = await client.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 4000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium", format: { type: "json_schema", schema: GEN_SCHEMA } },
+        system: extra ? `${system}\n\n${extra}` : system,
+        messages: [{ role: "user", content: `CONCEPT\n${context}` }],
+      });
+      return response;
+    };
+
+    let parsed: { body?: string; notes?: string } | null = null;
+    let dupOf: string | null = null;
+    const HARDEN =
+      "CRITICAL: your previous draft restated a proven winner almost verbatim. Write a DISTINCT brief that uses the winning PATTERN in entirely fresh wording — do not reuse the golden example's phrasing, sentences, or hook.";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await generate(attempt === 0 ? "" : HARDEN);
+      if (response.stop_reason === "refusal") {
+        return NextResponse.json({ error: "The writer declined this one." }, { status: 422 });
+      }
+      const textBlock = response.content.find((b) => b.type === "text");
+      const candidate = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
+      if (!candidate.body) return NextResponse.json({ error: "Empty script" }, { status: 500 });
+      dupOf = findDuplicateScript(candidate.body, golden.examples);
+      if (!dupOf) {
+        parsed = candidate;
+        break;
+      }
     }
-    const textBlock = response.content.find((b) => b.type === "text");
-    const parsed = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
-    if (!parsed.body) return NextResponse.json({ error: "Empty script" }, { status: 500 });
+    if (!parsed) {
+      return NextResponse.json(
+        { error: `The draft kept restating a golden example ("${dupOf}"). Vary the concept or edit by hand.`, duplicate_of: dupOf },
+        { status: 422 },
+      );
+    }
 
     const { data: saved, error } = await insertNextScriptVersion(supabase, conceptId, {
-      body: parsed.body,
+      body: parsed.body!,
       source: "ai",
       status: "draft",
       model: "claude-opus-4-8",
