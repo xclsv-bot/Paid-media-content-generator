@@ -17,7 +17,10 @@
 
 alter table public.learnings add column if not exists explore jsonb;
 
-comment on column public.learnings.do_more   is 'Rec[] { directive, sources:text[] (golden creative_ids), metric } — variant the proven winner';
-comment on column public.learnings.do_less   is 'Rec[] { directive, sources:text[] (loser creative_ids), metric } — stop repeating the proven loser';
-comment on column public.learnings.explore   is 'Rec[] { directive, sources:text[] (Untested family names), metric } — fill the named unfilled slot';
-comment on column public.learnings.watchouts is 'Rec[] { directive, sources:text[] (rejection creative_ids or Validating family names), metric }';
+-- sources are self-describing refs `<kind>:<key>` so a cold reader knows which
+-- store to query from the ref alone: golden|loser|rejection:<creative_id>,
+-- explore|validating:<family name>.
+comment on column public.learnings.do_more   is 'Rec[] { directive, sources:text[] (golden:<creative_id>), metric } — variant the proven winner';
+comment on column public.learnings.do_less   is 'Rec[] { directive, sources:text[] (loser:<creative_id>), metric } — stop repeating the proven loser';
+comment on column public.learnings.explore   is 'Rec[] { directive, sources:text[] (explore:<family>), metric } — fill the named unfilled slot';
+comment on column public.learnings.watchouts is 'Rec[] { directive, sources:text[] (rejection:<creative_id> or validating:<family>), metric }';
