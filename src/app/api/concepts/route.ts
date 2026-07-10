@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getGoldenExamples, findDuplicateHook } from "@/lib/loop/golden";
+import { findSemanticDuplicateHook } from "@/lib/loop/semantic";
 
 const ARCHETYPES = ["Qualifier", "Broad-appeal", "Mixed"];
 
@@ -54,7 +55,11 @@ export async function POST(req: Request) {
   // deliberate near-copy with allow_duplicate:true, which is recorded intent.
   if (!b.allow_duplicate) {
     const { examples } = await getGoldenExamples(supabase, b.org_id, 50);
-    const dup = findDuplicateHook(b.hook_line, examples);
+    // Lexical gate catches near-verbatim; semantic gate catches paraphrases
+    // (same idea, fresh words). Either one blocking is a duplicate.
+    const dup =
+      findDuplicateHook(b.hook_line, examples) ??
+      (await findSemanticDuplicateHook(supabase, b.hook_line, examples));
     if (dup) {
       return NextResponse.json(
         {
