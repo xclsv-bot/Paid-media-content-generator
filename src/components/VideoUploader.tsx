@@ -59,14 +59,16 @@ export default function VideoUploader({ creativeId }: { creativeId: string }) {
         }),
       });
       if (!regRes.ok) throw new Error((await regRes.json()).error);
-      const { video } = await regRes.json();
+      const { video, submitted } = await regRes.json();
 
       // 4) Transcribe the clip (Whisper). Non-fatal — the upload already
       // succeeded; a missing key or failure just leaves no transcript.
       setStatus("Transcribing…");
       await fetch(`/api/videos/${video.id}/transcribe`, { method: "POST" }).catch(() => {});
 
-      setStatus("Done.");
+      // A creator upload auto-advances the deliverable to Submitted — confirm
+      // the hand-off so "upload = done" is actually true.
+      setStatus(submitted ? "Done — marked Submitted for review." : "Done.");
       if (inputRef.current) inputRef.current.value = "";
       router.refresh();
     } catch (e) {
