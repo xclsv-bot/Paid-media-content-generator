@@ -63,11 +63,11 @@ function shortName(adName: string): string {
 export default async function PerformancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string; view?: string; flight?: string; month?: string }>;
+  searchParams: Promise<{ org?: string; view?: string; flight?: string }>;
 }) {
   const user = await requireStaff();
   const supabase = await createClient();
-  const { org: orgParam, view: viewParam, flight: flightParam, month: monthParam } = await searchParams;
+  const { org: orgParam, view: viewParam, flight: flightParam } = await searchParams;
 
   // Learnings/pattern-promotion are per-org. Staff can view any client org
   // (default: the first non-agency org); a client_viewer only ever has their
@@ -113,11 +113,11 @@ export default async function PerformancePage({
     conceptsByName.set(c.ad_name, list);
   }
 
-  // Two views over the same rows: a single weekly flight, or a whole calendar
-  // month rolled up per ad (contract tracking). Photo imports carry no
+  // Two views over the same rows: a single weekly report, or contract-to-date
+  // (every week since the contract started, mid-June). Photo imports carry no
   // flight_start, so recency falls back to when the row was imported.
   const recency = (m: Metric) => m.flight_start ?? m.created_at ?? "";
-  const view: "week" | "month" = viewParam === "month" ? "month" : "week";
+  const view: "week" | "total" = viewParam === "total" ? "total" : "week";
 
   // Weeks (flight labels), newest first.
   const flightRecency = new Map<string, string>();
@@ -127,52 +127,25 @@ export default async function PerformancePage({
   }
   const flights = [...flightRecency.entries()].sort((a, b) => (a[1] < b[1] ? 1 : -1)).map(([label]) => label);
   const selectedFlight = flightParam && flights.includes(flightParam) ? flightParam : flights[0] ?? null;
-
-  // Months (YYYY-MM from each row's recency date), newest first.
-  const monthKeys = [...new Set(all.map((m) => recency(m).slice(0, 7)).filter((k) => k.length === 7))].sort().reverse();
-  const monthLabel = (key: string) =>
-    new Date(`${key}-15T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const months = monthKeys.map((key) => ({ key, label: monthLabel(key) }));
-  const selectedMonth = monthParam && monthKeys.includes(monthParam) ? monthParam : monthKeys[0] ?? null;
+  const weeksInPeriod = view === "week" ? 1 : flights.length;
+  const firstWeek = flights[flights.length - 1] ?? null;
 
   let metrics: Metric[];
-  let weeksInPeriod = 1;
   if (view === "week") {
     metrics = all.filter((m) => m.flight_label === selectedFlight);
   } else {
-    // One row per ad across every flight in the month: sums for volume,
-    // ratio-of-sums CPA, spend-weighted CTR/ROAS, verdict/reason from the
-    // most recent week the ad appeared in.
-    const monthRows = all.filter((m) => recency(m).slice(0, 7) === selectedMonth);
-    weeksInPeriod = new Set(monthRows.map((m) => m.flight_label)).size;
-    const byAd = new Map<string, Metric[]>();
-    for (const m of monthRows) {
-      const list = byAd.get(m.ad_name) ?? [];
-      list.push(m);
-      byAd.set(m.ad_name, list);
+    // One row per ad across the whole contract. The report's Spend/Conv are
+    // FLIGHT-to-date running totals (a graduation report re-states each
+    // still-testing ad with updated cumulative numbers every week), so the
+    // ad's most recent row already carries its contract-to-date performance —
+    // summing weeks would double-count. Killed ads keep their final week's
+    // row, so nothing drops out of the totals.
+    const byAd = new Map<string, Metric>();
+    for (const m of all) {
+      const prev = byAd.get(m.ad_name);
+      if (!prev || recency(m) > recency(prev)) byAd.set(m.ad_name, m);
     }
-    metrics = [...byAd.values()].map((rows) => {
-      const latest = rows.reduce((b, m) => (recency(m) > recency(b) ? m : b));
-      const spend = rows.reduce((s, m) => s + Number(m.spend || 0), 0);
-      const conv = rows.reduce((s, m) => s + Number(m.conversions || 0), 0);
-      const weighted = (pick: (m: Metric) => number | null) => {
-        let w = 0, acc = 0;
-        for (const m of rows) {
-          const v = pick(m);
-          const sp = Number(m.spend || 0);
-          if (v != null && sp > 0) { w += sp; acc += Number(v) * sp; }
-        }
-        return w > 0 ? acc / w : null;
-      };
-      return {
-        ...latest,
-        spend,
-        conversions: conv,
-        cpa: conv > 0 ? spend / conv : null,
-        ctr: weighted((m) => m.ctr),
-        roas: weighted((m) => m.roas),
-      };
-    }).sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
+    metrics = [...byAd.values()].sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
   }
 
   const targetCents = defaultTargetCents();
@@ -212,7 +185,7 @@ export default async function PerformancePage({
             Creative testing — graduation report
             {view === "week"
               ? selectedFlight ? ` · ${selectedFlight}` : ""
-              : selectedMonth ? ` · ${monthLabel(selectedMonth)} · ${weeksInPeriod} weekly report${weeksInPeriod === 1 ? "" : "s"}` : ""}
+              : ` · Contract to date · ${weeksInPeriod} weekly report${weeksInPeriod === 1 ? "" : "s"}${firstWeek && weeksInPeriod > 1 ? ` since ${firstWeek}` : ""}`}
             . CPA target {targetDollars != null ? usd(targetDollars) : "—"}.
           </p>
         </div>
@@ -225,13 +198,7 @@ export default async function PerformancePage({
       </header>
 
       {all.length > 0 && (
-        <PeriodPicker
-          view={view}
-          weeks={flights}
-          months={months}
-          currentWeek={selectedFlight}
-          currentMonth={selectedMonth}
-        />
+        <PeriodPicker view={view} weeks={flights} currentWeek={selectedFlight} />
       )}
 
       {metrics.length === 0 ? (
@@ -245,7 +212,7 @@ export default async function PerformancePage({
             <Tile label="Spend" value={usd(totSpend)} />
             <Tile label="Conversions" value={num(totConv)} />
             <Tile label="Blended CPA" value={usd(blendedCpa)} accent={blendedCpa != null && targetDollars != null && blendedCpa <= targetDollars} />
-            <Tile label={view === "month" ? "Graduated (ads this month)" : "Graduated"} value={`${grads} / ${metrics.length}`} accent={grads > 0} />
+            <Tile label={view === "total" ? "Graduated (all ads)" : "Graduated"} value={`${grads} / ${metrics.length}`} accent={grads > 0} />
           </div>
 
           {/* Verdict groups */}
