@@ -6,6 +6,7 @@ import { rubricText, PASS_BAR } from "@/lib/loop/rubric";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 import { getGoldenExamples } from "@/lib/loop/golden";
 import { getBadExamples } from "@/lib/loop/bad";
+import { sourceRef } from "@/lib/loop/sourceRef";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -92,12 +93,14 @@ Compliance is a hard gate: if the script risks any compliance rule, score compli
     getGoldenExamples(supabase, c.org_id, 2),
     getBadExamples(supabase, c.org_id, 3),
   ]);
+  // Label each with its source ref so a `rejection:<id>`/`golden:<id>` a learnings
+  // directive cites resolves to the example here, in the same prompt.
   const rejectionReasons = bad.examples
     .filter((b) => b.kind === "review_rejection")
-    .map((b) => `- ${b.reason}`);
+    .map((b) => `- [${sourceRef("rejection", b.creative_id)}] ${b.reason}`);
   const exampleBlock = [
     golden.examples.length
-      ? `WHAT PASSING LOOKS LIKE (from the golden set):\n${golden.examples.map((g) => `- "${g.dimensions?.hook_line ?? "?"}": ${g.why_it_won}`).join("\n")}`
+      ? `WHAT PASSING LOOKS LIKE (from the golden set):\n${golden.examples.map((g) => `- [${sourceRef("golden", g.creative_id)}] "${g.dimensions?.hook_line ?? "?"}": ${g.why_it_won}`).join("\n")}`
       : "",
     rejectionReasons.length
       ? `PREVIOUSLY REJECTED FOR (do not let these recur):\n${rejectionReasons.join("\n")}`
