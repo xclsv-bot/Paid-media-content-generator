@@ -47,6 +47,20 @@ insert into public.content_cache (creative_id, org_id, score, results, spend_cen
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '99999999-9999-9999-9999-999999999992', 5.0, 50, 500000),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 4.0, 40, 400000);
 
+-- review-feedback fixtures (0027): a staff comment + approval on the concept
+-- assigned to creator1 (aaaa…) and on an UNASSIGNED concept in the CLIENT org
+-- (abab…). The unassigned probe must be client-org: an agency-org creative
+-- (like bbbb…) is already creator-visible via can_see_creative's org match,
+-- which is pre-existing behavior, not the 0027 grant under test.
+insert into public.creatives (id, org_id, concept_family_id, hook_line) values
+  ('abababab-abab-abab-abab-abababababab', '99999999-9999-9999-9999-999999999992', 'ffffffff-ffff-ffff-ffff-ffffffff0001', 'Outlier concept, unassigned');
+insert into public.comments (id, creative_id, author_id, body) values
+  ('99aa99aa-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'Tighten the first 2 seconds.'),
+  ('99aa99aa-0000-0000-0000-000000000002', 'abababab-abab-abab-abab-abababababab', '11111111-1111-1111-1111-111111111111', 'Not for creator eyes.');
+insert into public.approvals (creative_id, state, actor_id) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Changes requested', '11111111-1111-1111-1111-111111111111'),
+  ('abababab-abab-abab-abab-abababababab', 'Approved', '11111111-1111-1111-1111-111111111111');
+
 -- cross_client_patterns fixtures: one draft, one published (staff-only asset —
 -- neither should ever be visible to a client/creator, regardless of status).
 insert into public.cross_client_patterns (id, title, generalized_summary, source_org_id, authored_by, status) values
@@ -291,6 +305,47 @@ begin
     ('deadbeef-0000-0000-0000-000000000002', 'deadbeef-0000-0000-0000-000000000003');
   update public.deliverables set production_status = 'Assigned'
    where concept_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+end $$;
+
+-- 18) review feedback (0027): the ASSIGNED creator reads the comment +
+-- approval on their concept; an unassigned creator sees neither; creator
+-- writes stay blocked (SELECT-only grant).
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
+  set local role authenticated;
+  select count(*) into n from public.comments where creative_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  if n <> 1 then raise exception 'FAIL: assigned creator cannot read review comment (got %)', n; end if;
+  select count(*) into n from public.approvals where creative_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  if n <> 1 then raise exception 'FAIL: assigned creator cannot read approval state (got %)', n; end if;
+  select count(*) into n from public.comments where creative_id = 'abababab-abab-abab-abab-abababababab';
+  if n <> 0 then raise exception 'FAIL: creator reads comment on unassigned concept (got %)', n; end if;
+  select count(*) into n from public.approvals where creative_id = 'abababab-abab-abab-abab-abababababab';
+  if n <> 0 then raise exception 'FAIL: creator reads approval on unassigned concept (got %)', n; end if;
+  raise notice 'ok - assigned creator reads review feedback; unassigned creator sees none (0027)';
+end $$;
+do $$
+begin
+  perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
+  set local role authenticated;
+  begin
+    insert into public.comments (creative_id, author_id, body)
+      values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '33333333-3333-3333-3333-333333333333', 'creator reply');
+    raise exception 'FAIL: creator inserted into comments (grant is SELECT-only)';
+  exception when insufficient_privilege then
+    raise notice 'ok - creator cannot write comments';
+  end;
+  begin
+    update public.approvals set state = 'Approved'
+      where creative_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    if found then
+      raise exception 'FAIL: creator updated approval state (grant is SELECT-only)';
+    end if;
+    raise notice 'ok - creator cannot change approval state';
+  exception when insufficient_privilege then
+    raise notice 'ok - creator cannot change approval state';
+  end;
 end $$;
 
 \echo 'All RLS assertions passed.'
