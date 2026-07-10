@@ -21,6 +21,7 @@ type Concept = {
   talent?: string;
   theme?: string;
   near_duplicate?: string | null;
+  blocked_duplicate?: string | null;
   _added?: boolean;
 };
 
@@ -327,14 +328,21 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
                       <div className="mb-2 flex items-center gap-2">
                         <span className="font-mono text-[10.5px] uppercase tracking-wide text-white/50">{c.family}</span>
                         <span className="rounded-md bg-violet-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-violet-300">DRAFT CONCEPT</span>
-                        {c.near_duplicate && (
+                        {c.blocked_duplicate ? (
+                          <span
+                            className="rounded-md bg-red-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-red-300"
+                            title={`Its hook restates the golden example "${c.blocked_duplicate}" — Add is blocked; vary the hook first`}
+                          >
+                            ✕ RESTATES “{c.blocked_duplicate}”
+                          </span>
+                        ) : c.near_duplicate ? (
                           <span
                             className="rounded-md bg-amber-400/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-amber-300"
                             title={`Same family + angle as the golden example "${c.near_duplicate}" — vary it before adding`}
                           >
                             ≈ DUPLICATE OF “{c.near_duplicate}”
                           </span>
-                        )}
+                        ) : null}
                       </div>
                       <h3 className="mb-3 text-[17.5px] font-semibold leading-snug text-gray-100">“{c.hook}”</h3>
                       <div className="mb-3 flex flex-wrap gap-2">
@@ -348,19 +356,22 @@ export default function IdeateWorkspace({ organizations }: { organizations: Orga
                       </div>
                       <div className="flex flex-wrap gap-2.5">
                         <button
-                          disabled={c._added}
+                          disabled={c._added || !!c.blocked_duplicate}
+                          title={c.blocked_duplicate ? `Blocked: restates the golden example "${c.blocked_duplicate}". Vary the hook first.` : undefined}
                           onClick={() => addConcept(mi, ci, false)}
                           className={`rounded-[9px] px-3.5 py-2 text-[13px] font-semibold ${
-                            c._added ? "cursor-default bg-emerald-500/15 text-emerald-300" : "bg-emerald-400 text-black hover:bg-emerald-300"
+                            c._added ? "cursor-default bg-emerald-500/15 text-emerald-300"
+                              : c.blocked_duplicate ? "cursor-not-allowed bg-white/[0.06] text-white/35"
+                              : "bg-emerald-400 text-black hover:bg-emerald-300"
                           }`}
                         >
-                          {c._added ? "✓ Added" : "+ Add to Ideas"}
+                          {c._added ? "✓ Added" : c.blocked_duplicate ? "Blocked (duplicate)" : "+ Add to Ideas"}
                         </button>
                         <button
-                          disabled={c._added}
+                          disabled={c._added || !!c.blocked_duplicate}
                           onClick={() => addConcept(mi, ci, true)}
                           className={`rounded-[9px] px-3.5 py-2 text-[13px] font-semibold ${
-                            c._added ? "hidden" : "border border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10"
+                            c._added || c.blocked_duplicate ? "hidden" : "border border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10"
                           }`}
                         >
                           + Add to This Week

@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { latestLearnings, learningsPromptBlock } from "@/lib/loop/learnings";
 import { EMPTY_CACHE_NOTE, getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
-import { findNearDuplicate, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
+import { findNearDuplicate, findDuplicateHook, getGoldenExamples, type GoldenExample } from "@/lib/loop/golden";
 import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
 import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
 
@@ -192,12 +192,19 @@ When the user shares context (call transcripts, references, performance signals)
     const textBlock = response.content.find((b) => b.type === "text");
     const raw = textBlock && "text" in textBlock ? textBlock.text : "{}";
     const parsed = JSON.parse(raw);
-    // Diversity guard: flag (never drop) concepts that near-duplicate a golden
-    // example, so staff see the overlap and decide.
-    type Concept = { family?: string | null; angle?: string | null; format?: string | null };
+    // Diversity guard, two levels:
+    //   near_duplicate    — soft badge: same family+angle+format as a golden
+    //                       example ("vary this"), staff still decide.
+    //   blocked_duplicate — hard: its hook restates a golden hook, so the
+    //                       concept-persist gate (/api/concepts) WILL 422 it.
+    //                       The UI disables Add for these. (The lexical check is
+    //                       cheap; the semantic paraphrase check still runs at
+    //                       persist for anything that gets through.)
+    type Concept = { family?: string | null; angle?: string | null; format?: string | null; hook?: string | null };
     const concepts = ((parsed.concepts ?? []) as Concept[]).map((con) => ({
       ...con,
       near_duplicate: findNearDuplicate(con, golden.examples),
+      blocked_duplicate: findDuplicateHook(con.hook, golden.examples),
     }));
     return NextResponse.json({ reply: parsed.reply ?? "", concepts });
   } catch (e) {
