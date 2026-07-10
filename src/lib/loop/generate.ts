@@ -1,23 +1,73 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAnthropic, NOT_CONFIGURED, Anthropic } from "@/lib/anthropic";
-import { getLearningInputs } from "@/lib/loop/scoreboard";
+import { getLearningInputs, type RecSource } from "@/lib/loop/scoreboard";
+import type { Rec } from "@/lib/loop/learnings";
+
+// Each recommendation the analyst emits MUST cite the backing-row IDs it is
+// grounded in. `sources` is validated against the candidate rows we fed in
+// (generate.ts drops any rec citing an unknown ID, and any rec citing nothing),
+// so a cold reader can always retrieve the winner/loser/slot behind a directive.
+const REC = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    directive: { type: "string" },
+    sources: { type: "array", items: { type: "string" } },
+  },
+  required: ["directive", "sources"],
+} as const;
 
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
     narrative: { type: "string" },
-    do_more: { type: "array", items: { type: "string" } },
-    do_less: { type: "array", items: { type: "string" } },
-    watchouts: { type: "array", items: { type: "string" } },
+    do_more: { type: "array", items: REC },
+    do_less: { type: "array", items: REC },
+    explore: { type: "array", items: REC },
+    watchouts: { type: "array", items: REC },
   },
-  required: ["narrative", "do_more", "do_less", "watchouts"],
+  required: ["narrative", "do_more", "do_less", "explore", "watchouts"],
 } as const;
 
 export type GenResult = { status: number; learning?: unknown; error?: string };
 
-// Shared analyst logic: read the gated scoreboard + winners/losers, write a
-// structured learnings snapshot. Used by the staff button (user client) and the
+type RawRec = { directive?: string; sources?: unknown };
+
+// The traceability gate: keep only recs that cite ≥1 real candidate ID, and
+// stamp each with the authoritative metric from the cited rows (never the
+// model's own number). Everything else is dropped and counted — an untraceable
+// rec never reaches the store. This is the guarantee the cold-reader check
+// leans on: every emitted rec's `sources` retrieve real backing rows.
+export function traceableRecs(
+  raw: unknown,
+  candidates: RecSource[],
+): { recs: Rec[]; dropped: number } {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const recs: Rec[] = [];
+  let dropped = 0;
+  for (const item of Array.isArray(raw) ? (raw as RawRec[]) : []) {
+    const directive = (item?.directive ?? "").trim();
+    const cited = Array.isArray(item?.sources) ? (item.sources as unknown[]) : [];
+    const valid = [...new Set(cited.filter((s): s is string => typeof s === "string" && byId.has(s)))];
+    if (!directive || valid.length === 0) {
+      dropped++;
+      continue;
+    }
+    const metric = [...new Set(valid.map((id) => byId.get(id)!.metric).filter(Boolean))].join("; ");
+    recs.push({ directive, sources: valid, metric });
+  }
+  return { recs, dropped };
+}
+
+function candidateBlock(title: string, sources: RecSource[], emptyNote: string): string {
+  if (!sources.length) return `${title}\n(none — ${emptyNote})`;
+  return `${title}\n${sources.map((s) => s.prompt).join("\n")}`;
+}
+
+// Shared analyst logic: read the gated scoreboard + traceable candidate rows,
+// write a structured learnings snapshot where every recommendation cites the
+// backing-row IDs it came from. Used by the staff button (user client) and the
 // weekly heartbeat (admin client). `supabase` must be able to insert learnings.
 export async function generateLearnings(
   supabase: SupabaseClient,
@@ -36,11 +86,33 @@ export async function generateLearnings(
     .single();
   const clientDesc = org?.voice_note ?? org?.display_name ?? "the client's account";
 
-  const system = `You are a paid-social performance analyst for ${clientDesc}. From the data below — a per-dimension scoreboard (hit rate = share of creatives at/under the ${inputs.targetDollars} CPT target) plus the top winning and losing creatives with their scripts — write the current, actionable learnings for the next round of creative.
+  // Categories the current data cannot yet support — no backing rows to cite,
+  // so any rec there would be untraceable. We surface these as flags rather
+  // than let the model invent ungrounded advice.
+  const flags: string[] = [];
+  if (!inputs.golden.length) flags.push("do_more (no golden/proven winner with a captured script yet)");
+  if (!inputs.losers.length) flags.push("do_less (no proven loser yet)");
+  if (!inputs.explore.length) flags.push("explore (no Untested family slots)");
+  if (!inputs.rejections.length && !inputs.validating.length) flags.push("watchouts (no compliance rejections or Validating slots)");
 
-Be specific and grounded in the numbers: name the families/angles/audiences/formats that are winning and missing, and infer WHY from the scripts (hook style, proof, structure). "do_more"/"do_less" are concrete, script-level directives a writer can act on. "watchouts" flags small-sample or compliance risks. Keep "narrative" to a short paragraph. Do not invent data not present.`;
+  const system = `You are a paid-social performance analyst for ${clientDesc}. Below is a per-dimension scoreboard (hit rate = share of creatives at/under the ${inputs.targetDollars} CPT target), plus candidate rows for each recommendation type — every candidate is prefixed with the exact ID you must cite to ground a recommendation in it.
 
-  const userContent = `SCOREBOARD (mature cohorts, gated by trials)\n${inputs.scoreboardText}\n\nTOP WINNERS\n${inputs.winnersText}\n\nWORST PERFORMERS\n${inputs.losersText}`;
+Write the current, actionable learnings for the next round of creative. HARD RULES on traceability:
+- Every recommendation is an object { directive, sources }. "sources" MUST list the exact IDs (the creative_id or family name shown in brackets, e.g. golden:abc, loser:def, explore:Props) of the candidate rows the directive is based on. Cite only IDs that appear below — never invent one.
+- do_more: cite golden:<creative_id> — variant the proven winner(s). Base each directive on WHY that golden script won (hook style, proof, structure).
+- do_less: cite loser:<creative_id> — the proven losers to stop repeating.
+- explore: cite explore:<family> — a named unfilled slot with no matured cohort yet.
+- watchouts: cite rejection:<creative_id> (compliance mistakes to never repeat) or validating:<family> (small-sample families not yet proven).
+- Do NOT emit a recommendation you cannot tie to a listed ID. If a category has no candidates, return [] for it. Keep "narrative" to a short paragraph. Do not invent data.`;
+
+  const userContent = [
+    `SCOREBOARD (mature cohorts, gated by trials)\n${inputs.scoreboardText}`,
+    candidateBlock("DO_MORE CANDIDATES — proven winners (cite golden:<id>)", inputs.golden, "no golden examples yet"),
+    candidateBlock("DO_LESS CANDIDATES — proven losers (cite loser:<id>)", inputs.losers, "no proven losers yet"),
+    candidateBlock("EXPLORE CANDIDATES — unfilled slots (cite explore:<family>)", inputs.explore, "no untested families"),
+    candidateBlock("WATCHOUT CANDIDATES — compliance rejections (cite rejection:<id>)", inputs.rejections, "no rejections"),
+    candidateBlock("WATCHOUT CANDIDATES — validating slots (cite validating:<family>)", inputs.validating, "no validating families"),
+  ].join("\n\n");
 
   let client: Anthropic;
   try {
@@ -62,16 +134,30 @@ Be specific and grounded in the numbers: name the families/angles/audiences/form
     const textBlock = response.content.find((b) => b.type === "text");
     const parsed = JSON.parse(textBlock && "text" in textBlock ? textBlock.text : "{}");
 
+    // Enforce traceability in code — the model's citations are validated against
+    // the candidate rows, unknown IDs are stripped, untraceable recs are dropped,
+    // and each surviving rec is stamped with its rows' authoritative metric.
+    const doMore = traceableRecs(parsed.do_more, inputs.golden);
+    const doLess = traceableRecs(parsed.do_less, inputs.losers);
+    const explore = traceableRecs(parsed.explore, inputs.explore);
+    const watchouts = traceableRecs(parsed.watchouts, [...inputs.rejections, ...inputs.validating]);
+    const droppedTotal = doMore.dropped + doLess.dropped + explore.dropped + watchouts.dropped;
+
     const { data: saved, error } = await supabase
       .from("learnings")
       .insert({
         scope: org?.slug ?? "global",
         org_id: orgId,
         narrative: parsed.narrative ?? "",
-        do_more: parsed.do_more ?? [],
-        do_less: parsed.do_less ?? [],
-        watchouts: parsed.watchouts ?? [],
-        attribution: { scoreboard: inputs.scoreboardText },
+        do_more: doMore.recs,
+        do_less: doLess.recs,
+        explore: explore.recs,
+        watchouts: watchouts.recs,
+        attribution: {
+          scoreboard: inputs.scoreboardText,
+          unsupported_categories: flags,
+          dropped_untraceable: droppedTotal,
+        },
         model: "claude-opus-4-8",
         created_by: createdBy,
       })
