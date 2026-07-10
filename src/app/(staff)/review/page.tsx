@@ -1,8 +1,8 @@
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
-import VideoGallery from "@/components/VideoGallery";
-import ReviewCard, { type ReviewComment } from "@/components/ReviewCard";
+import type { ReviewComment } from "@/components/ReviewCard";
+import ReviewBoard, { type ReviewItem } from "@/components/ReviewBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -68,41 +68,40 @@ export default async function ReviewPage() {
     commentsByCreative.set(c.creative_id, list);
   });
 
-  // Only show delivered work (has at least one video).
-  const reviewable = creatives.filter((c) => videosByCreative.has(c.id));
+  // Only show delivered work (has at least one video) that still needs a
+  // decision — approving moves the piece out of this queue (it stays on its
+  // concept page and in the client library).
+  const delivered = creatives.filter((c) => videosByCreative.has(c.id));
+  const approvedCount = delivered.filter((c) => stateByCreative.get(c.id) === "Approved").length;
+  const items: ReviewItem[] = delivered
+    .filter((c) => stateByCreative.get(c.id) !== "Approved")
+    .map((c) => ({
+      id: c.id,
+      family: famName(c.concept_families),
+      hook: c.hook_line,
+      videos: (videosByCreative.get(c.id) ?? []).map((v) => ({ ...v, canDelete: true })),
+      state: stateByCreative.get(c.id) ?? "Pending",
+      comments: commentsByCreative.get(c.id) ?? [],
+    }));
 
   return (
     <main className="mx-auto max-w-4xl p-6">
       <header className="mb-5">
         <h1 className="text-2xl font-semibold">Review</h1>
         <p className="text-sm text-white/50">
-          Delivered work — watch, approve, and leave notes.
+          Delivered work waiting on a decision — watch, approve, and leave notes.
+          {approvedCount > 0 && ` ${approvedCount} approved piece${approvedCount === 1 ? "" : "s"} moved out of this queue.`}
         </p>
       </header>
 
-      {reviewable.length === 0 ? (
-        <Empty />
+      {items.length === 0 ? (
+        <p className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-white/50">
+          {approvedCount > 0
+            ? "All caught up — everything delivered has been approved."
+            : "No delivered work to review yet."}
+        </p>
       ) : (
-        <div className="space-y-4">
-          {reviewable.map((c) => {
-            const videos = videosByCreative.get(c.id) ?? [];
-            return (
-              <section key={c.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs uppercase tracking-wide text-white/40">{famName(c.concept_families)}</div>
-                <h2 className="mt-0.5 text-lg font-medium">{c.hook_line}</h2>
-                <div className="mb-3">
-                  <VideoGallery videos={videos.map((v) => ({ ...v, canDelete: true }))} />
-                </div>
-                <ReviewCard
-                  creativeId={c.id}
-                  state={stateByCreative.get(c.id) ?? "Pending"}
-                  comments={commentsByCreative.get(c.id) ?? []}
-                  currentUserId={user.id}
-                />
-              </section>
-            );
-          })}
-        </div>
+        <ReviewBoard items={items} currentUserId={user.id} />
       )}
     </main>
   );
