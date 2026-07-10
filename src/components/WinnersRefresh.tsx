@@ -16,10 +16,19 @@ export default function WinnersRefresh() {
       const res = await fetch("/api/winners/refresh", { method: "POST" });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Refresh failed");
-      setMsg(`Cached ${body.cached} of ${body.evaluated} evaluated.`);
+      // A zero has two very different causes — say which one this is.
+      const g = body.gates as { min_results: number; min_spend_cents: number } | undefined;
+      if (body.evaluated === 0) {
+        setMsg("No performance data imported yet — import a weekly report on Performance, then refresh.");
+      } else if (body.cached === 0) {
+        const bar = g ? ` (CPT at/under target over ≥${g.min_results} results and ≥$${g.min_spend_cents / 100} spend)` : "";
+        setMsg(`${body.evaluated} evaluated — none cleared the winners bar yet${bar}. Not an error — nothing qualifies yet.`);
+      } else {
+        setMsg(`Cached ${body.cached} of ${body.evaluated} evaluated.`);
+      }
       router.refresh();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Refresh failed");
+      setMsg(`${e instanceof Error ? e.message : "Refresh failed"} — try again; if it persists, re-check the report import on Performance.`);
     } finally {
       setBusy(false);
     }

@@ -4,6 +4,7 @@ import { isAuthorizedAgent, isAuthorizedCron } from "@/lib/agent-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { refreshAll, type RefreshResult } from "@/lib/loop/refresh";
 import { refreshBreakdowns, type BreakdownRefreshResult } from "@/lib/loop/breakdowns-refresh";
+import { minResults, minSpendCents } from "@/lib/loop/config";
 
 // Breakdown generation can run several model calls; give the route headroom.
 export const maxDuration = 300; // capped to plan max
@@ -20,7 +21,13 @@ async function run(): Promise<NextResponse> {
   // Breakdowns ride the same run so the daily cron keeps them fresh; a
   // breakdown failure is reported but never fails the store refresh itself.
   const breakdowns: BreakdownRefreshResult = await refreshBreakdowns(admin);
-  return NextResponse.json({ ...result, breakdowns });
+  // gates: the env-resolved winners bar, so the UI can explain a legitimate
+  // zero ("evaluated N, cached 0") with the real thresholds, never hardcoded.
+  return NextResponse.json({
+    ...result,
+    breakdowns,
+    gates: { min_results: minResults(), min_spend_cents: minSpendCents() },
+  });
 }
 
 // POST /api/winners/refresh — manual trigger: staff (session) or the script agent.
