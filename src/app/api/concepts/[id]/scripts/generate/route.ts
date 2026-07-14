@@ -7,6 +7,7 @@ import { insertNextScriptVersion } from "@/lib/scripts";
 import { getCachedWinners, winnerLine } from "@/lib/loop/winners-cache";
 import { getGoldenExamples, findDuplicateScript } from "@/lib/loop/golden";
 import { getBadExamples, badExampleLine } from "@/lib/loop/bad";
+import { breakdownsPromptBlock, getWinnerBreakdowns } from "@/lib/loop/breakdowns";
 
 export const maxDuration = 300; // capped to plan max
 
@@ -57,10 +58,11 @@ export async function POST(
   // report GRADUATE list only as a cold-start fallback. creative_metrics is
   // org-stamped since 0026, so the fallback scopes directly by org_id.
   const orgId = (c as { org_id?: string }).org_id ?? "";
-  const [golden, cache, bad] = await Promise.all([
+  const [golden, cache, bad, breakdowns] = await Promise.all([
     getGoldenExamples(supabase, orgId, 5),
     getCachedWinners(supabase, orgId, 5),
     getBadExamples(supabase, orgId, 5),
+    getWinnerBreakdowns(supabase, orgId, 4),
   ]);
 
   const goldenBlock = golden.examples.length
@@ -74,7 +76,10 @@ export async function POST(
   const avoidBlock = bad.examples.length
     ? `AVOID THESE PATTERNS (proven losers, killed content, and compliance rejections):\n${bad.examples.map(badExampleLine).join("\n")}`
     : "";
-  const grounded = [goldenBlock, winnersBlock, avoidBlock].filter(Boolean).join("\n\n");
+  // The structural teardowns behind the winners — the pattern to write from,
+  // where the golden block above is the verbatim copy that worked.
+  const teardownBlock = breakdowns.breakdowns.length ? breakdownsPromptBlock(breakdowns) : "";
+  const grounded = [goldenBlock, teardownBlock, winnersBlock, avoidBlock].filter(Boolean).join("\n\n");
 
   const { data: graduates } = await supabase
     .from("creative_metrics")

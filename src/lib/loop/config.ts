@@ -14,6 +14,9 @@
 // | LOSER_MATURE_DAYS      | 21      | maturity window before a loser verdict     |
 // | LOSER_MIN_RESULTS      | =LOOP_MIN_TRIALS | trials before a loser verdict     |
 // | LOSER_CPT_MULTIPLIER   | 1.5     | CPT must be ≥ this × target to be a loser  |
+// | BREAKDOWNS_MAX         | 6       | winner breakdowns fed to a prompt          |
+// | BREAKDOWN_MAX_PER_RUN  | 5       | breakdown model calls per refresh run      |
+// | BREAKDOWN_INPUT_CHAR_CAP | 8000  | script/transcript chars sent per teardown  |
 
 // The contract measurement window (Performance Standard §4.3): a cohort is
 // judged once its 21-day window has closed. Not env-tunable — it's contractual.
@@ -62,4 +65,15 @@ export function loserCptMultiplier(): number {
 }
 export function badMax(): number {
   return envInt("BAD_MAX", 10);
+}
+
+// --- Winner breakdowns (src/lib/loop/breakdowns.ts) ---
+export function breakdownsMax(): number {
+  return envInt("BREAKDOWNS_MAX", 6);
+}
+export function breakdownMaxPerRun(): number {
+  return envInt("BREAKDOWN_MAX_PER_RUN", 5, 0);
+}
+export function breakdownInputCharCap(): number {
+  return envInt("BREAKDOWN_INPUT_CHAR_CAP", 8000, 500);
 }

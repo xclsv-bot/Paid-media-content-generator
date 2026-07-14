@@ -147,7 +147,7 @@ export default async function ThisWeekPage({
         </p>
       </header>
 
-      {slots.length > 0 && (
+      {slots.length > 0 && selected && (
         <section className="mb-5 rounded-[14px] border border-white/10 bg-white/[0.025] p-4">
           <div className="mb-2.5 flex items-baseline gap-2">
             <span className="font-mono text-[11px] uppercase tracking-wider text-white/45">Portfolio slots</span>
@@ -165,7 +165,12 @@ export default async function ThisWeekPage({
               ) : (
                 <Link
                   key={s.family}
-                  href="/ideate"
+                  // Carry the cycle's org and the slot into Ideate — a bare
+                  // /ideate link would open the FIRST org's session, losing
+                  // both which client and which family the click meant.
+                  href={`/ideate?org=${selected.org_id}&seed=${encodeURIComponent(
+                    `Fill the ${s.family} slot (currently ${s.status}) — propose fresh concepts for this family.`,
+                  )}`}
                   className={`rounded-full border px-2.5 py-1 text-[12px] hover:border-white/40 ${SLOT_CHIP[s.status]}`}
                   title={`${s.status} — ideate to fill this slot`}
                 >

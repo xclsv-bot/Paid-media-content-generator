@@ -4,8 +4,17 @@ import IdeateWorkspace from "@/components/IdeateWorkspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function IdeatePage() {
+// Accepts ?org=<id|slug> and ?seed=<text> so other surfaces can open ideation
+// with the right client preselected and a starter prompt in the composer —
+// e.g. This Week's slot chips ("fill the Data Edge slot") and the Winners
+// page's "Ideate from this winner" links.
+export default async function IdeatePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ org?: string; seed?: string }>;
+}) {
   await requireStaff();
+  const { org, seed } = await searchParams;
 
   const supabase = await createClient();
   const { data: organizations } = await supabase
@@ -13,6 +22,9 @@ export default async function IdeatePage() {
     .select("id, slug, display_name")
     .eq("is_agency", false)
     .order("display_name");
+
+  const orgs = organizations ?? [];
+  const initialOrgId = org ? orgs.find((o) => o.id === org || o.slug === org)?.id : undefined;
 
   return (
     <main className="mx-auto max-w-6xl p-6">
@@ -22,7 +34,7 @@ export default async function IdeatePage() {
           Brainstorm with the agent using call transcripts, references, and performance signals — then push concepts straight into the bank.
         </p>
       </header>
-      <IdeateWorkspace organizations={organizations ?? []} />
+      <IdeateWorkspace organizations={orgs} initialOrgId={initialOrgId} initialSeed={seed} />
     </main>
   );
 }

@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { defaultTargetCents } from "@/lib/metrics/perf";
 import { deriveVerdict, isVerdict, type Verdict, type VerdictSource } from "@/lib/metrics/verdict";
 import { refreshAll } from "@/lib/loop/refresh";
+import { refreshBreakdowns } from "@/lib/loop/breakdowns-refresh";
 
 export const maxDuration = 60;
 
@@ -167,6 +168,10 @@ export async function POST(req: Request) {
   // performance + calls the refresh RPCs). A refresh failure isn't fatal to the
   // save — the row is persisted; report it so the UI can surface a soft warning.
   const refresh = await refreshAll(createAdminClient());
+
+  // Winner breakdowns regenerate post-response (they can involve model calls),
+  // so recording a CPA stays fast while the teardown lands moments later.
+  after(() => refreshBreakdowns(createAdminClient()).catch(() => {}));
 
   return NextResponse.json({ metric, refresh }, { status: 200 });
 }

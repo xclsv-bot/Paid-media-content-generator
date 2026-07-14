@@ -37,16 +37,27 @@ const chip = "rounded-md border border-white/10 bg-white/[0.05] px-2 py-1 text-[
 
 export type Organization = { id: string; slug: string; display_name: string };
 
-export default function IdeateWorkspace({ organizations }: { organizations: Organization[] }) {
+export default function IdeateWorkspace({
+  organizations,
+  initialOrgId,
+  initialSeed,
+}: {
+  organizations: Organization[];
+  // Deep-link state (?org= / ?seed= on /ideate): preselect the client and
+  // prefill the composer — used by This Week's slot chips and the Winners
+  // page's "Ideate from this winner" links so context carries over.
+  initialOrgId?: string;
+  initialSeed?: string;
+}) {
   const [messages, setMessages] = useState<Msg[]>([INTRO]);
   const [sources, setSources] = useState<Source[]>([]);
-  const [composer, setComposer] = useState("");
+  const [composer, setComposer] = useState(initialSeed ?? "");
   const [busy, setBusy] = useState(false);
   const [added, setAdded] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [showSrc, setShowSrc] = useState(false);
   const [srcDraft, setSrcDraft] = useState({ type: "Transcript", name: "", note: "" });
-  const [orgId, setOrgId] = useState(organizations[0]?.id ?? "");
+  const [orgId, setOrgId] = useState(initialOrgId ?? organizations[0]?.id ?? "");
   const refInputRef = useRef<HTMLInputElement>(null);
   const [refBusy, setRefBusy] = useState(false);
   const [recentRefs, setRecentRefs] = useState<RefClip[]>([]);

@@ -293,4 +293,46 @@ begin
    where concept_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 end $$;
 
+-- 18) winner_breakdowns (0030): staff see all; creators see ACTIVE rows only;
+-- clients see none (the teardown derives from internal scripts).
+insert into public.winner_breakdowns
+  (creative_id, org_id, source, status, breakdown, dimensions, model, input_hash) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '99999999-9999-9999-9999-999999999992', 'performance', 'active',
+   '{"hook":{"device":"d","first_three_seconds":"f","why_it_works":"w"},"beats":[{"beat":"b","purpose":"p"}],"proof_device":"pd","cta":{"text":"t","placement":"end","style":"spoken"},"delivery":{"pacing":"fast","format_rationale":"fr","talent_rationale":"tr","theme":"Information"},"replicable_pattern":"rp","vary_next":["v1"]}',
+   '{"family":"Test Family Outlier","hook_line":"Outlier concept","hook_angle":null,"archetype":null,"sport":null,"format":null}',
+   'test-model', 'hash-active'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 'editorial', 'inactive',
+   '{"hook":{"device":"d","first_three_seconds":"f","why_it_works":"w"},"beats":[{"beat":"b","purpose":"p"}],"proof_device":"pd","cta":{"text":"t","placement":"end","style":"spoken"},"delivery":{"pacing":"fast","format_rationale":"fr","talent_rationale":"tr","theme":"Information"},"replicable_pattern":"rp","vary_next":["v1"]}',
+   '{"family":"Test Family XCLSV","hook_line":"XCLSV-only concept","hook_angle":null,"archetype":null,"sport":null,"format":null}',
+   'test-model', 'hash-inactive');
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111"}', true);
+  set local role authenticated;
+  select count(*) into n from public.winner_breakdowns;
+  if n <> 2 then raise exception 'FAIL: staff sees % winner_breakdowns rows, expected 2', n; end if;
+  raise notice 'ok - winner_breakdowns: staff sees all rows incl. inactive';
+end $$;
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
+  set local role authenticated;
+  select count(*) into n from public.winner_breakdowns where status = 'active';
+  if n <> 1 then raise exception 'FAIL: creator sees % active winner_breakdowns rows, expected 1', n; end if;
+  select count(*) into n from public.winner_breakdowns where status = 'inactive';
+  if n <> 0 then raise exception 'FAIL: creator sees % inactive winner_breakdowns rows, expected 0', n; end if;
+  raise notice 'ok - winner_breakdowns: creator reads active rows only';
+end $$;
+do $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222"}', true);
+  set local role authenticated;
+  select count(*) into n from public.winner_breakdowns;
+  if n <> 0 then raise exception 'FAIL: client_viewer sees % winner_breakdowns rows, expected 0', n; end if;
+  raise notice 'ok - winner_breakdowns hidden from client_viewer';
+end $$;
+
 \echo 'All RLS assertions passed.'

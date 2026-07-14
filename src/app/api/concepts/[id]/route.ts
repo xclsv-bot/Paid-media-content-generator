@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { refreshBreakdowns } from "@/lib/loop/breakdowns-refresh";
 
 const ARCHETYPES = ["Qualifier", "Broad-appeal", "Mixed"];
 const IDEA_STATUSES = ["Backlog", "Testing", "Winner", "Parked"];
@@ -28,7 +30,31 @@ export async function PATCH(
   if ("is_proven" in b) patch.is_proven = !!b.is_proven;
 
   const supabase = await createClient();
+
+  // Marking a concept "Winner" is invisible curation (like recording a CPA):
+  // it should generate the concept's breakdown for Ideate; un-marking should
+  // retire it. Read the current status first so we only refresh on a real
+  // transition to/from Winner, not on every brief edit.
+  let winnerFlip = false;
+  if (typeof patch.idea_status === "string") {
+    const { data: current } = await supabase
+      .from("creatives")
+      .select("idea_status")
+      .eq("id", id)
+      .single();
+    winnerFlip =
+      !!current &&
+      current.idea_status !== patch.idea_status &&
+      (current.idea_status === "Winner" || patch.idea_status === "Winner");
+  }
+
   const { error } = await supabase.from("creatives").update(patch).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (winnerFlip) {
+    // Post-response: breakdown generation can involve a model call. Scoped to
+    // this creative so a status flip never triggers a full-store sweep.
+    after(() => refreshBreakdowns(createAdminClient(), { creativeIds: [id] }).catch(() => {}));
+  }
   return NextResponse.json({ ok: true });
 }
