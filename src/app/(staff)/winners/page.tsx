@@ -3,7 +3,7 @@ import { isStaff, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import WinnersRefresh from "@/components/WinnersRefresh";
 import GoldenCurationButtons from "@/components/GoldenCurationButtons";
-import type { WinnerBreakdown } from "@/lib/loop/breakdowns";
+import { parseBreakdown, type WinnerBreakdown } from "@/lib/loop/breakdowns";
 
 export const dynamic = "force-dynamic";
 
@@ -95,9 +95,16 @@ export default async function WinnersPage() {
   // see none.
   const goldenRows = (goldenData ?? []) as unknown as GoldenRow[];
   const badRows = (badData ?? []) as unknown as BadRow[];
-  const breakdownRows = (breakdownData ?? []) as unknown as (WinnerBreakdown & {
+  // Re-validate the teardown jsonb before rendering (same seam as
+  // getWinnerBreakdowns): one malformed row must never 500 the page.
+  const breakdownRows = ((breakdownData ?? []) as unknown as (WinnerBreakdown & {
     organizations: { display_name: string } | { display_name: string }[] | null;
-  })[];
+  })[])
+    .map((b) => {
+      const parsed = parseBreakdown(b.breakdown);
+      return parsed ? { ...b, breakdown: parsed } : null;
+    })
+    .filter((b): b is NonNullable<typeof b> => b !== null);
 
   const { data } = await supabase
     .from("content_cache")

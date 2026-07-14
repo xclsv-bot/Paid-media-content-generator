@@ -49,6 +49,18 @@ create table public.winner_breakdowns (
   constraint wb_breakdown_keys check (
     breakdown ?& array['hook', 'beats', 'proof_device', 'cta', 'delivery', 'replicable_pattern', 'vary_next']
   ),
+  -- ?& alone would accept a top-level ARRAY of the seven key names (array
+  -- elements count as matches) and any value shapes; pin the container types
+  -- the readers dereference. Full validation stays in parseBreakdown — the
+  -- readers also re-validate, so one malformed row can never 500 a page.
+  constraint wb_breakdown_shapes check (
+    jsonb_typeof(breakdown) = 'object'
+    and jsonb_typeof(breakdown -> 'hook') = 'object'
+    and jsonb_typeof(breakdown -> 'beats') = 'array'
+    and jsonb_typeof(breakdown -> 'cta') = 'object'
+    and jsonb_typeof(breakdown -> 'delivery') = 'object'
+    and jsonb_typeof(breakdown -> 'vary_next') = 'array'
+  ),
   constraint wb_dimensions_keys check (
     dimensions ?& array['family', 'hook_line', 'hook_angle', 'archetype', 'sport', 'format']
   )
@@ -57,11 +69,14 @@ create index on public.winner_breakdowns (org_id, status);
 
 alter table public.winner_breakdowns enable row level security;
 
--- Staff manage everything; creators may read active breakdowns (they show what
--- "good" looks like, same rationale as ge_creator_read). No client policy: the
--- teardown is derived from internal scripts. All writes happen on the
--- service-role client (the refresher), which bypasses RLS — like content_cache.
+-- Staff manage everything; creators may read active breakdowns for orgs they
+-- are actively producing for (same rationale AND same assignment-based scope
+-- as ge_creator_read after 0024 — creators belong to the agency org, so the
+-- creator_in_org() predicate is what stops one client's teardowns leaking to
+-- another client's contractor). No client policy: the teardown is derived from
+-- internal scripts. All writes happen on the service-role client (the
+-- refresher), which bypasses RLS — like content_cache.
 create policy wb_staff_all on public.winner_breakdowns for all
   using (public.is_staff()) with check (public.is_staff());
 create policy wb_creator_read on public.winner_breakdowns for select
-  using (public.is_creator() and status = 'active');
+  using (public.is_creator() and status = 'active' and public.creator_in_org(org_id));

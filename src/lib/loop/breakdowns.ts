@@ -237,7 +237,15 @@ export async function getWinnerBreakdowns(
     .order("generated_at", { ascending: false })
     .limit(limit);
   if (error) return { breakdowns: [], error: error.message };
-  return { breakdowns: (data ?? []) as unknown as WinnerBreakdown[], error: null };
+  // Re-validate the jsonb on read: the DB CHECKs pin container shapes, not the
+  // nested fields the renderers dereference. A malformed row (a staff write
+  // outside the refresher) is dropped here rather than 500ing every consumer.
+  const rows: WinnerBreakdown[] = [];
+  for (const r of (data ?? []) as unknown as WinnerBreakdown[]) {
+    const parsed = parseBreakdown(r.breakdown);
+    if (parsed) rows.push({ ...r, breakdown: parsed });
+  }
+  return { breakdowns: rows, error: null };
 }
 
 // ---------------------------------------------------------------------------

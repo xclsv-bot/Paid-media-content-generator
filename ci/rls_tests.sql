@@ -27,7 +27,8 @@ insert into public.concept_families (id, org_id, name) values
 
 insert into public.creatives (id, org_id, concept_family_id, hook_line) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '99999999-9999-9999-9999-999999999992', 'ffffffff-ffff-ffff-ffff-ffffffff0001', 'Outlier concept'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 'ffffffff-ffff-ffff-ffff-ffffffff0002', 'XCLSV-only concept');
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 'ffffffff-ffff-ffff-ffff-ffffffff0002', 'XCLSV-only concept'),
+  ('abababab-abab-abab-abab-abababababab', '99999999-9999-9999-9999-999999999992', 'ffffffff-ffff-ffff-ffff-ffffffff0001', 'Outlier concept 2');
 
 insert into public.creative_financials (creative_id, internal_cost_cents) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 5000);
@@ -293,25 +294,33 @@ begin
    where concept_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 end $$;
 
--- 18) winner_breakdowns (0030): staff see all; creators see ACTIVE rows only;
--- clients see none (the teardown derives from internal scripts).
+-- 18) winner_breakdowns (0030): staff see all; creators see ACTIVE rows only
+-- and only for orgs they are assigned to (creator_in_org, per 0024); clients
+-- see none (the teardown derives from internal scripts).
+-- Fixture layout makes the cross-tenant case load-bearing: the org-991 row is
+-- ACTIVE, so a policy missing creator_in_org() would leak it to creator1
+-- (assigned only in org 992) and fail the assertion below.
 insert into public.winner_breakdowns
   (creative_id, org_id, source, status, breakdown, dimensions, model, input_hash) values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '99999999-9999-9999-9999-999999999992', 'performance', 'active',
    '{"hook":{"device":"d","first_three_seconds":"f","why_it_works":"w"},"beats":[{"beat":"b","purpose":"p"}],"proof_device":"pd","cta":{"text":"t","placement":"end","style":"spoken"},"delivery":{"pacing":"fast","format_rationale":"fr","talent_rationale":"tr","theme":"Information"},"replicable_pattern":"rp","vary_next":["v1"]}',
    '{"family":"Test Family Outlier","hook_line":"Outlier concept","hook_angle":null,"archetype":null,"sport":null,"format":null}',
-   'test-model', 'hash-active'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 'editorial', 'inactive',
+   'test-model', 'hash-own-org-active'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '99999999-9999-9999-9999-999999999991', 'editorial', 'active',
    '{"hook":{"device":"d","first_three_seconds":"f","why_it_works":"w"},"beats":[{"beat":"b","purpose":"p"}],"proof_device":"pd","cta":{"text":"t","placement":"end","style":"spoken"},"delivery":{"pacing":"fast","format_rationale":"fr","talent_rationale":"tr","theme":"Information"},"replicable_pattern":"rp","vary_next":["v1"]}',
    '{"family":"Test Family XCLSV","hook_line":"XCLSV-only concept","hook_angle":null,"archetype":null,"sport":null,"format":null}',
-   'test-model', 'hash-inactive');
+   'test-model', 'hash-other-org-active'),
+  ('abababab-abab-abab-abab-abababababab', '99999999-9999-9999-9999-999999999992', 'performance', 'inactive',
+   '{"hook":{"device":"d","first_three_seconds":"f","why_it_works":"w"},"beats":[{"beat":"b","purpose":"p"}],"proof_device":"pd","cta":{"text":"t","placement":"end","style":"spoken"},"delivery":{"pacing":"fast","format_rationale":"fr","talent_rationale":"tr","theme":"Information"},"replicable_pattern":"rp","vary_next":["v1"]}',
+   '{"family":"Test Family Outlier","hook_line":"Outlier concept 2","hook_angle":null,"archetype":null,"sport":null,"format":null}',
+   'test-model', 'hash-own-org-inactive');
 do $$
 declare n int;
 begin
   perform set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111"}', true);
   set local role authenticated;
   select count(*) into n from public.winner_breakdowns;
-  if n <> 2 then raise exception 'FAIL: staff sees % winner_breakdowns rows, expected 2', n; end if;
+  if n <> 3 then raise exception 'FAIL: staff sees % winner_breakdowns rows, expected 3', n; end if;
   raise notice 'ok - winner_breakdowns: staff sees all rows incl. inactive';
 end $$;
 do $$
@@ -319,11 +328,14 @@ declare n int;
 begin
   perform set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333"}', true);
   set local role authenticated;
-  select count(*) into n from public.winner_breakdowns where status = 'active';
-  if n <> 1 then raise exception 'FAIL: creator sees % active winner_breakdowns rows, expected 1', n; end if;
+  select count(*) into n from public.winner_breakdowns;
+  if n <> 1 then raise exception 'FAIL: creator sees % winner_breakdowns rows, expected 1 (active + own assigned org only)', n; end if;
+  select count(*) into n from public.winner_breakdowns
+    where creative_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  if n <> 0 then raise exception 'FAIL: creator sees an ACTIVE breakdown for an org they are not assigned to'; end if;
   select count(*) into n from public.winner_breakdowns where status = 'inactive';
   if n <> 0 then raise exception 'FAIL: creator sees % inactive winner_breakdowns rows, expected 0', n; end if;
-  raise notice 'ok - winner_breakdowns: creator reads active rows only';
+  raise notice 'ok - winner_breakdowns: creator reads active rows in assigned orgs only';
 end $$;
 do $$
 declare n int;
