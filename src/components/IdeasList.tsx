@@ -15,6 +15,8 @@ export type IdeaRow = {
   is_proven: boolean;
   cpt: number | null;
   hit: boolean | null;
+  reported: boolean;
+  spend: number | null;
   has_video: boolean;
   in_cycle: boolean;
 };
@@ -37,7 +39,14 @@ function footerFor(r: IdeaRow): { label: string; color: string } {
       color: r.hit ? "#6ee7b7" : "#fca5a5",
     };
   }
-  if (r.has_video) return { label: "Delivered · awaiting data", color: "rgba(125,211,252,0.85)" };
+  // In a weekly report, but no trials yet — spending without converting.
+  if (r.reported) {
+    return {
+      label: `Reported · $${(r.spend ?? 0).toFixed(0)} spent · no trials yet`,
+      color: "rgba(252,211,77,0.9)",
+    };
+  }
+  if (r.has_video) return { label: "Delivered · no metrics yet", color: "rgba(125,211,252,0.85)" };
   return { label: "Not started", color: "rgba(232,234,237,0.4)" };
 }
 
