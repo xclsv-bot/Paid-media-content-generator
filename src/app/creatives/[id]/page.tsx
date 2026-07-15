@@ -78,6 +78,11 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   let weekSlots: WeekSlot[] = [];
   let weekCycles: WeekCycle[] = [];
   let weekPeople: WeekPerson[] = [];
+  // Prev/next stepping through the week this concept belongs to, with each
+  // sibling's production status — working a week means opening every concept
+  // in turn, and going back to the board between each one is friction.
+  type PagerItem = { concept_id: string; hook_line: string | null; sheet_id: string | null; production_status: string };
+  let pager: { label: string; items: PagerItem[]; idx: number } | null = null;
   if (staff && creative.org_id) {
     const [{ data: slotRows }, { data: cycleRows }, { data: peopleRows }] = await Promise.all([
       supabase.from("deliverables").select("id, cycle_id, assignee_id").eq("concept_id", id),
@@ -92,6 +97,27 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
     weekSlots = (slotRows as WeekSlot[]) ?? [];
     weekCycles = (cycleRows as WeekCycle[]) ?? [];
     weekPeople = (peopleRows as WeekPerson[]) ?? [];
+
+    // Page within the newest week this concept is scheduled in (weekCycles is
+    // already ordered newest-first).
+    const pagerCycle = weekCycles.find((c) => weekSlots.some((s) => s.cycle_id === c.id));
+    if (pagerCycle) {
+      const { data: siblingRows } = await supabase
+        .from("deliverables")
+        .select("concept_id, production_status, creatives(hook_line, sheet_id)")
+        .eq("cycle_id", pagerCycle.id)
+        .order("created_at", { ascending: true });
+      const items: PagerItem[] = ((siblingRows ?? []) as unknown as Array<{
+        concept_id: string;
+        production_status: string;
+        creatives: { hook_line: string | null; sheet_id: string | null } | { hook_line: string | null; sheet_id: string | null }[] | null;
+      }>).map((r) => {
+        const c = Array.isArray(r.creatives) ? r.creatives[0] ?? null : r.creatives;
+        return { concept_id: r.concept_id, production_status: r.production_status, hook_line: c?.hook_line ?? null, sheet_id: c?.sheet_id ?? null };
+      });
+      const idx = items.findIndex((it) => it.concept_id === id);
+      if (idx >= 0 && items.length > 1) pager = { label: pagerCycle.label, items, idx };
+    }
   }
 
   // Internal creator ↔ staff discussion (not loaded for clients).
@@ -133,7 +159,10 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
 
   return (
     <main className="mx-auto max-w-6xl p-6 pb-24">
-      <Link href={back.href} className="text-[13px] text-white/50 hover:text-white">{back.label}</Link>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link href={back.href} className="text-[13px] text-white/50 hover:text-white">{back.label}</Link>
+        {pager && <WeekPagerBar pager={pager} />}
+      </div>
 
       <header className="mb-7 mt-4">
         <div className="flex items-center gap-2.5 font-mono text-[11.5px] uppercase tracking-wide text-white/45">
@@ -253,6 +282,57 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
         </aside>
       </div>
     </main>
+  );
+}
+
+const PROD_DOT: Record<string, string> = {
+  Assigned: "bg-white/25",
+  "In production": "bg-sky-400",
+  Submitted: "bg-violet-400",
+  "In revision": "bg-amber-400",
+  Approved: "bg-emerald-400",
+  Delivered: "bg-emerald-500",
+};
+
+// Prev/next through the week's concepts. Each sibling is a dot colored by its
+// production status (green = approved/delivered), so "which ones are approved"
+// is visible while stepping through.
+function WeekPagerBar({
+  pager,
+}: {
+  pager: { label: string; items: { concept_id: string; hook_line: string | null; sheet_id: string | null; production_status: string }[]; idx: number };
+}) {
+  const prev = pager.idx > 0 ? pager.items[pager.idx - 1] : null;
+  const next = pager.idx < pager.items.length - 1 ? pager.items[pager.idx + 1] : null;
+  const navBtn = "rounded-lg border border-white/15 px-2.5 py-1 text-[12.5px] text-white/75 hover:bg-white/10";
+
+  return (
+    <div className="ml-auto flex flex-wrap items-center gap-2.5">
+      <span className="text-[12px] text-white/45">
+        {pager.label} · {pager.idx + 1} of {pager.items.length}
+      </span>
+      <span className="flex items-center gap-1.5">
+        {pager.items.map((it, i) => (
+          <Link
+            key={it.concept_id}
+            href={`/creatives/${it.concept_id}`}
+            title={`${it.sheet_id ? `#${it.sheet_id} ` : ""}${it.hook_line ?? "Concept"} — ${it.production_status}`}
+            aria-label={`${it.hook_line ?? "Concept"} — ${it.production_status}`}
+            className={`h-2.5 w-2.5 rounded-full ${PROD_DOT[it.production_status] ?? "bg-white/25"} ${i === pager.idx ? "ring-2 ring-white/70" : "hover:ring-2 hover:ring-white/30"}`}
+          />
+        ))}
+      </span>
+      {prev ? (
+        <Link href={`/creatives/${prev.concept_id}`} className={navBtn} title={prev.hook_line ?? undefined}>← Prev</Link>
+      ) : (
+        <span className={`${navBtn} pointer-events-none opacity-35`}>← Prev</span>
+      )}
+      {next ? (
+        <Link href={`/creatives/${next.concept_id}`} className={navBtn} title={next.hook_line ?? undefined}>Next →</Link>
+      ) : (
+        <span className={`${navBtn} pointer-events-none opacity-35`}>Next →</span>
+      )}
+    </div>
   );
 }
 
