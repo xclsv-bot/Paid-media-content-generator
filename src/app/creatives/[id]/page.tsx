@@ -9,6 +9,7 @@ import VideoGallery from "@/components/VideoGallery";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
+import WeekAssignment, { type WeekCycle, type WeekSlot } from "@/components/WeekAssignment";
 import AdNameTag from "@/components/AdNameTag";
 import PerformanceQuickEntry from "@/components/PerformanceQuickEntry";
 import DiscussionThread, { type Note } from "@/components/DiscussionThread";
@@ -38,7 +39,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   const { data: creative } = await supabase
     .from("creatives")
     .select(
-      "id, sheet_id, ad_name, content_summary, hook_line, hypothesis, hook_angle, archetype, feature_pillar, sport, format, variant_differentiator, cta, status, idea_status, is_proven, compliance_note, script_doc_url, cpt_target_cents, concept_families(name, compliance_note)",
+      "id, sheet_id, org_id, ad_name, content_summary, hook_line, hypothesis, hook_angle, archetype, feature_pillar, sport, format, variant_differentiator, cta, status, idea_status, is_proven, compliance_note, script_doc_url, cpt_target_cents, concept_families(name, compliance_note)",
     )
     .eq("id", id)
     .single();
@@ -63,6 +64,24 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
       .limit(1)
       .maybeSingle();
     latestReview = (rev as unknown as Review) ?? null;
+  }
+
+  // Which week(s) this concept is scheduled in + the client's other weeks,
+  // so staff can move a misfiled concept without leaving the page.
+  let weekSlots: WeekSlot[] = [];
+  let weekCycles: WeekCycle[] = [];
+  if (staff && creative.org_id) {
+    const [{ data: slotRows }, { data: cycleRows }] = await Promise.all([
+      supabase.from("deliverables").select("id, cycle_id").eq("concept_id", id),
+      supabase
+        .from("cycles")
+        .select("id, label, status")
+        .eq("org_id", creative.org_id)
+        .order("starts_on", { ascending: false })
+        .limit(20),
+    ]);
+    weekSlots = (slotRows as WeekSlot[]) ?? [];
+    weekCycles = (cycleRows as WeekCycle[]) ?? [];
   }
 
   // Internal creator ↔ staff discussion (not loaded for clients).
@@ -171,6 +190,10 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
             )}
             {(staff || creator) && <div className="mt-3"><VideoUploader creativeId={creative.id} /></div>}
           </div>
+
+          {staff && weekCycles.length > 0 && (
+            <WeekAssignment conceptId={creative.id} slots={weekSlots} cycles={weekCycles} />
+          )}
 
           {!creator && <PerformancePanel perf={(perf as unknown as CreativePerf) ?? null} targetCents={creative.cpt_target_cents ?? defaultTargetCents()} />}
           {staff && creative.ad_name && (
