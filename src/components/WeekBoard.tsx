@@ -170,6 +170,10 @@ export default function WeekBoard({
   }
 
   const sel = "rounded border border-white/10 bg-black/30 px-2 py-1 text-sm";
+  // Weeks a row can move to: same client, any other cycle.
+  const moveTargets = selected
+    ? cycles.filter((c) => c.org_id === selected.org_id && c.id !== selected.id)
+    : [];
   const count = deliverables.length;
   const target = selected?.target_count ?? 15;
   const pct = Math.min(100, Math.round((count / target) * 100));
@@ -276,7 +280,7 @@ export default function WeekBoard({
             <col className="w-36" />
             <col className="w-36" />
             <col className="w-14" />
-            <col className="w-24" />
+            <col className="w-44" />
           </colgroup>
           <thead className="bg-white/5 text-white/60">
             <tr>
@@ -321,6 +325,19 @@ export default function WeekBoard({
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                     <Link href={`/creatives/${d.concept_id}`} className="text-emerald-400 hover:underline">Open</Link>
+                    {moveTargets.length > 0 && (
+                      <select
+                        value=""
+                        onChange={(e) => { if (e.target.value) patchDeliverable(d.id, { cycle_id: e.target.value }); }}
+                        aria-label="Move to another week"
+                        className="w-20 rounded border border-white/10 bg-black/30 px-1 py-0.5 text-xs text-white/60"
+                      >
+                        <option value="">Move…</option>
+                        {moveTargets.map((c) => (
+                          <option key={c.id} value={c.id}>{c.label}</option>
+                        ))}
+                      </select>
+                    )}
                     {confirmRemove === d.id ? (
                       <span className="flex items-center gap-1.5 text-xs">
                         <button onClick={() => removeDeliverable(d.id)} className="rounded bg-red-500/20 px-1.5 py-0.5 text-red-300 hover:bg-red-500/30">Remove</button>
