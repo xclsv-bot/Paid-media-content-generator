@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+
+export type CycleOpt = { id: string; label: string; status: string; org_id: string };
+export type PersonOpt = { id: string; name: string | null; role: string };
 
 export type IdeaRow = {
   id: string;
   sheet_id: string | null;
+  org_id: string | null;
   family: string | null;
   hook_line: string | null;
   hook_angle: string | null;
@@ -52,13 +57,88 @@ function footerFor(r: IdeaRow): { label: string; color: string } {
 
 type View = "cards" | "list";
 
-export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
+export default function IdeasList({
+  rows,
+  cycles,
+  people,
+}: {
+  rows: IdeaRow[];
+  cycles: CycleOpt[];
+  people: PersonOpt[];
+}) {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [family, setFamily] = useState("");
   const [archetype, setArchetype] = useState("");
   const [status, setStatus] = useState("");
   const [hideScheduled, setHideScheduled] = useState(false);
   const [view, setView] = useState<View>("cards");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkWeek, setBulkWeek] = useState("");
+  const [bulkPerson, setBulkPerson] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<{ text: string; error: boolean } | null>(null);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Weeks are per-client: offer only cycles matching the selection's org.
+  const selectedRows = rows.filter((r) => selected.has(r.id));
+  const selOrgs = [...new Set(selectedRows.map((r) => r.org_id).filter(Boolean))];
+  const weekOptions = selOrgs.length === 1 ? cycles.filter((c) => c.org_id === selOrgs[0]) : [];
+
+  async function applyBulk() {
+    if (selected.size === 0 || bulkBusy || (!bulkWeek && !bulkPerson)) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const ids = [...selected];
+      if (bulkWeek) {
+        // One call schedules everything (dupes ignored) and assigns if asked.
+        const res = await fetch(`/api/cycles/${bulkWeek}/deliverables`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conceptIds: ids, ...(bulkPerson ? { assignee_id: bulkPerson } : {}) }),
+        });
+        const j = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(j?.error ?? "Couldn't update the selection");
+        const week = cycles.find((c) => c.id === bulkWeek)?.label ?? "the week";
+        setBulkMsg({
+          text: `Added ${j.added} to ${week}${bulkPerson ? ` · creator set on ${j.assigned}` : ""} ✓`,
+          error: false,
+        });
+      } else {
+        // Creator only: assigns existing week slots; unscheduled concepts have
+        // no slot to carry the assignment.
+        const res = await fetch("/api/deliverables/assign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conceptIds: ids, assignee_id: bulkPerson }),
+        });
+        const j = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(j?.error ?? "Couldn't assign the creator");
+        const skipped = (j.unscheduled as string[])?.length ?? 0;
+        setBulkMsg({
+          text: `Creator set on ${j.assigned}${skipped > 0 ? ` · ${skipped} skipped (not in a week yet — pick a week too to schedule them)` : ""} ${skipped > 0 ? "" : "✓"}`,
+          error: false,
+        });
+      }
+      setSelected(new Set());
+      setBulkWeek("");
+      setBulkPerson("");
+      router.refresh();
+    } catch (e) {
+      setBulkMsg({ text: e instanceof Error ? e.message : "Couldn't update the selection", error: true });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   // Remember the user's preferred view across visits.
   useEffect(() => {
@@ -153,6 +233,49 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
         </div>
       </div>
 
+      {(selected.size > 0 || bulkMsg) && (
+        <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[12px] border border-emerald-400/25 bg-emerald-400/[0.05] px-4 py-2.5 text-sm">
+          <span className="text-white/70">{selected.size} selected</span>
+          {selected.size > 0 && (
+            <>
+              {selOrgs.length > 1 ? (
+                <span className="text-amber-300/90">Selection spans clients — pick one client&apos;s concepts.</span>
+              ) : (
+                <>
+                  <select value={bulkWeek} onChange={(e) => setBulkWeek(e.target.value)} aria-label="Add to week" className={sel}>
+                    <option value="">Week (optional)…</option>
+                    {weekOptions.map((c) => (
+                      <option key={c.id} value={c.id}>{c.label} · {c.status}</option>
+                    ))}
+                  </select>
+                  <select value={bulkPerson} onChange={(e) => setBulkPerson(e.target.value)} aria-label="Assign creator" className={sel}>
+                    <option value="">Creator (optional)…</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name ?? "user"} ({p.role})</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={applyBulk}
+                    disabled={bulkBusy || (!bulkWeek && !bulkPerson)}
+                    className="rounded-lg bg-emerald-400 px-3.5 py-1.5 text-[13px] font-semibold text-black hover:bg-emerald-300 disabled:opacity-40"
+                  >
+                    {bulkBusy ? "Applying…" : "Apply"}
+                  </button>
+                </>
+              )}
+              <button onClick={() => { setSelected(new Set()); setBulkMsg(null); }} className="text-white/50 hover:text-white">
+                Clear
+              </button>
+            </>
+          )}
+          {bulkMsg && (
+            <span className={`${selected.size > 0 ? "w-full" : ""} ${bulkMsg.error ? "text-red-300" : "text-emerald-300"}`}>
+              {bulkMsg.text}
+            </span>
+          )}
+        </div>
+      )}
+
       {filtered.length === 0 && (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
           {rows.length === 0 ? (
@@ -181,6 +304,14 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
                 className="flex min-h-[172px] flex-col gap-3 rounded-[15px] border border-white/10 bg-white/[0.035] p-[18px] transition hover:-translate-y-0.5 hover:border-emerald-400/45 hover:bg-white/[0.055]"
               >
                 <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(r.id)}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(r.id); }}
+                    onChange={() => {}}
+                    aria-label={`Select ${r.hook_line ?? "concept"}`}
+                    className="h-4 w-4 flex-shrink-0 accent-emerald-400"
+                  />
                   {r.sheet_id && <span className="font-mono text-[11px] text-white/40">{r.sheet_id}</span>}
                   <span className="text-[11.5px] uppercase tracking-wide text-white/50">{r.family}</span>
                   <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_PILL[r.idea_status] ?? ""}`}>
@@ -205,8 +336,8 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
       ) : (
         <div className="overflow-x-auto rounded-[12px] border border-white/10">
         <div className="min-w-[880px]">
-          <div className="grid grid-cols-[64px_1.4fr_2.2fr_1fr_0.9fr_120px_150px] gap-3 border-b border-white/10 bg-white/[0.04] px-4 py-2.5 font-mono text-[10.5px] uppercase tracking-wide text-white/45">
-            <span>#</span><span>Family</span><span>Hook</span><span>Angle</span><span>Sport</span><span>Status</span><span>Signal</span>
+          <div className="grid grid-cols-[28px_64px_1.4fr_2.2fr_1fr_0.9fr_120px_150px] gap-3 border-b border-white/10 bg-white/[0.04] px-4 py-2.5 font-mono text-[10.5px] uppercase tracking-wide text-white/45">
+            <span /><span>#</span><span>Family</span><span>Hook</span><span>Angle</span><span>Sport</span><span>Status</span><span>Signal</span>
           </div>
           {filtered.map((r) => {
             const foot = footerFor(r);
@@ -214,8 +345,16 @@ export default function IdeasList({ rows }: { rows: IdeaRow[] }) {
               <Link
                 key={r.id}
                 href={`/creatives/${r.id}`}
-                className="grid grid-cols-[64px_1.4fr_2.2fr_1fr_0.9fr_120px_150px] items-center gap-3 border-b border-white/[0.06] px-4 py-2.5 text-[13px] last:border-0 hover:bg-white/[0.04]"
+                className="grid grid-cols-[28px_64px_1.4fr_2.2fr_1fr_0.9fr_120px_150px] items-center gap-3 border-b border-white/[0.06] px-4 py-2.5 text-[13px] last:border-0 hover:bg-white/[0.04]"
               >
+                <input
+                  type="checkbox"
+                  checked={selected.has(r.id)}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(r.id); }}
+                  onChange={() => {}}
+                  aria-label={`Select ${r.hook_line ?? "concept"}`}
+                  className="h-4 w-4 accent-emerald-400"
+                />
                 <span className="font-mono text-[11px] text-white/40">{r.sheet_id}</span>
                 <span className="truncate text-white/80">
                   {r.family}

@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
-// POST /api/cycles/:id/deliverables  { conceptIds: string[] }
+// POST /api/cycles/:id/deliverables  { conceptIds: string[], assignee_id? }
 // Staff add concepts to a cycle. Duplicates are ignored (unique cycle_id+concept_id).
+// When assignee_id is present, every listed concept's slot in this cycle gets
+// that creator — including slots that already existed before this call.
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -14,7 +16,7 @@ export async function POST(
   }
 
   const { id: cycleId } = await params;
-  const { conceptIds } = await req.json();
+  const { conceptIds, assignee_id: assigneeId } = await req.json();
   if (!Array.isArray(conceptIds) || conceptIds.length === 0) {
     return NextResponse.json({ error: "conceptIds required" }, { status: 400 });
   }
@@ -43,5 +45,17 @@ export async function POST(
     .select();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ added: data?.length ?? 0 }, { status: 201 });
+
+  let assigned = 0;
+  if (typeof assigneeId === "string" && assigneeId) {
+    const { data: upd, error: aErr } = await supabase
+      .from("deliverables")
+      .update({ assignee_id: assigneeId, updated_at: new Date().toISOString() })
+      .eq("cycle_id", cycleId)
+      .in("concept_id", conceptIds)
+      .select("id");
+    if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+    assigned = upd?.length ?? 0;
+  }
+  return NextResponse.json({ added: data?.length ?? 0, assigned }, { status: 201 });
 }
