@@ -27,6 +27,7 @@ type Concept = {
 
 type Msg = { role: "user" | "ai"; text: string; concepts?: Concept[] };
 type Source = { type: string; name: string; note?: string };
+type ConvoSummary = { id: string; title: string | null; updated_at: string };
 
 const INTRO: Msg = {
   role: "ai",
@@ -62,6 +63,8 @@ export default function IdeateWorkspace({
   const [refBusy, setRefBusy] = useState(false);
   const [recentRefs, setRecentRefs] = useState<RefClip[]>([]);
   const [recentVideos, setRecentVideos] = useState<VideoClip[]>([]);
+  const [convId, setConvId] = useState<string | null>(null);
+  const [convos, setConvos] = useState<ConvoSummary[]>([]);
 
   function flash(t: string) {
     setToast(t);
@@ -84,12 +87,86 @@ export default function IdeateWorkspace({
       /* non-fatal */
     }
   }
+  async function loadConvos(org: string) {
+    try {
+      const res = await fetch(`/api/ideation-conversations?org=${encodeURIComponent(org)}`);
+      if (res.ok) setConvos(((await res.json()).conversations as ConvoSummary[]) ?? []);
+    } catch {
+      /* non-fatal */
+    }
+  }
   useEffect(() => {
     loadRecent();
   }, []);
   useEffect(() => {
-    if (orgId) loadRecentVideos(orgId);
+    if (orgId) {
+      loadRecentVideos(orgId);
+      loadConvos(orgId);
+    }
   }, [orgId]);
+
+  function newChat() {
+    setConvId(null);
+    setMessages([INTRO]);
+    setSources([]);
+  }
+
+  // Conversations are per-client; switching orgs starts fresh.
+  function switchOrg(org: string) {
+    setOrgId(org);
+    newChat();
+  }
+
+  // Autosave the chat after every exchange so navigating away loses nothing.
+  async function saveConvo(msgs: Msg[], srcs: Source[]): Promise<string | null> {
+    const toSave = msgs.filter((m) => m !== INTRO);
+    if (toSave.length === 0) return convId;
+    const firstUser = toSave.find((m) => m.role === "user");
+    try {
+      const res = await fetch("/api/ideation-conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: convId ?? undefined,
+          org_id: orgId,
+          title: firstUser?.text.slice(0, 80),
+          messages: toSave,
+          sources: srcs,
+        }),
+      });
+      if (!res.ok) return convId;
+      const saved = (await res.json()).conversation as { id: string };
+      if (!convId) setConvId(saved.id);
+      loadConvos(orgId);
+      return saved.id;
+    } catch {
+      return convId; // autosave failures never interrupt the chat
+    }
+  }
+
+  async function openConvo(id: string) {
+    if (busy) return;
+    try {
+      const res = await fetch(`/api/ideation-conversations/${id}`);
+      if (!res.ok) throw new Error();
+      const c = (await res.json()).conversation as { id: string; messages: Msg[]; sources: Source[] };
+      setConvId(c.id);
+      setMessages([INTRO, ...(Array.isArray(c.messages) ? c.messages : [])]);
+      setSources(Array.isArray(c.sources) ? c.sources : []);
+    } catch {
+      flash("Couldn't open that conversation");
+    }
+  }
+
+  async function deleteConvo(id: string) {
+    try {
+      await fetch(`/api/ideation-conversations/${id}`, { method: "DELETE" });
+    } catch {
+      /* list refresh below reconciles */
+    }
+    if (id === convId) newChat();
+    loadConvos(orgId);
+  }
 
   // Attach a reference video → upload → Whisper transcript → add as a source.
   async function attachReference() {
@@ -163,10 +240,9 @@ export default function IdeateWorkspace({
         }),
       });
       if (!ok) throw new Error(String(data.error ?? "Ideation failed"));
-      setMessages((m) => [
-        ...m,
-        { role: "ai", text: String(data.reply ?? ""), concepts: (data.concepts as Concept[]) ?? [] },
-      ]);
+      const aiMsg: Msg = { role: "ai", text: String(data.reply ?? ""), concepts: (data.concepts as Concept[]) ?? [] };
+      setMessages((m) => [...m, aiMsg]);
+      saveConvo([...next, aiMsg], sources);
     } catch (e) {
       setMessages((m) => [...m, { role: "ai", text: `⚠ ${e instanceof Error ? e.message : "Failed"}` }]);
     } finally {
@@ -200,11 +276,11 @@ export default function IdeateWorkspace({
       return;
     }
     const data = (await res.json().catch(() => ({}))) as { cycle?: { label: string } | null };
-    setMessages((msgs) =>
-      msgs.map((m, i) =>
-        i !== mi ? m : { ...m, concepts: m.concepts?.map((x, j) => (j === ci ? { ...x, _added: true } : x)) },
-      ),
+    const updated = messages.map((m, i) =>
+      i !== mi ? m : { ...m, concepts: m.concepts?.map((x, j) => (j === ci ? { ...x, _added: true } : x)) },
     );
+    setMessages(updated);
+    saveConvo(updated, sources); // keep the ✓ Added state when the chat is reopened
     setAdded((n) => n + 1);
     if (toCycle) {
       flash(data.cycle ? `Added to This Week — ${data.cycle.label} ✓` : "Added to Ideas — no open cycle yet (create one on This Week)");
@@ -229,7 +305,7 @@ export default function IdeateWorkspace({
           <span className="font-mono text-[11px] uppercase tracking-wider text-white/45">Client</span>
           <select
             value={orgId}
-            onChange={(e) => setOrgId(e.target.value)}
+            onChange={(e) => switchOrg(e.target.value)}
             className="rounded-[9px] border border-white/[0.12] bg-black/30 px-2.5 py-2 text-sm text-white/85"
           >
             {organizations.map((o) => (
@@ -237,6 +313,46 @@ export default function IdeateWorkspace({
             ))}
           </select>
         </label>
+
+        {/* Saved conversations — autosaved after every exchange */}
+        <div className="mb-4 border-b border-white/10 pb-4">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-white/45">Conversations</span>
+            <button
+              onClick={newChat}
+              className="rounded-md border border-white/[0.14] px-2 py-0.5 text-[11.5px] text-white/70 hover:bg-white/10"
+            >
+              + New
+            </button>
+          </div>
+          {convos.length === 0 ? (
+            <p className="text-[12px] text-white/35">Chats save here automatically.</p>
+          ) : (
+            <div className="flex max-h-56 flex-col gap-0.5 overflow-y-auto">
+              {convos.map((c) => (
+                <div key={c.id} className="group flex items-center gap-1">
+                  <button
+                    onClick={() => openConvo(c.id)}
+                    title={c.title ?? "Untitled"}
+                    className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[12px] hover:bg-white/10 ${
+                      c.id === convId ? "bg-white/10 text-emerald-300" : "text-white/70"
+                    }`}
+                  >
+                    {c.title ?? "Untitled"}
+                  </button>
+                  <button
+                    onClick={() => deleteConvo(c.id)}
+                    aria-label={`Delete conversation ${c.title ?? "Untitled"}`}
+                    className="flex-shrink-0 rounded px-1.5 py-1 text-[11px] text-white/30 hover:bg-red-500/15 hover:text-red-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="mb-3 font-mono text-[11px] uppercase tracking-wider text-white/45">Context the agent uses</div>
         <div className="flex flex-col gap-2">
           {sources.length === 0 && <p className="text-[12.5px] text-white/40">No sources yet.</p>}
