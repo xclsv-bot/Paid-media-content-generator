@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { fetchJson } from "@/lib/http";
 import { composeAdName } from "@/lib/client/categorize";
 import { createClient } from "@/lib/supabase/client";
@@ -23,6 +24,7 @@ type Concept = {
   near_duplicate?: string | null;
   blocked_duplicate?: string | null;
   _added?: boolean;
+  _id?: string; // the created concept's id, once added — makes the card linkable
 };
 
 type Msg = { role: "user" | "ai"; text: string; concepts?: Concept[] };
@@ -275,9 +277,9 @@ export default function IdeateWorkspace({
       flash("Couldn't add concept");
       return;
     }
-    const data = (await res.json().catch(() => ({}))) as { cycle?: { label: string } | null };
+    const data = (await res.json().catch(() => ({}))) as { id?: string; cycle?: { label: string } | null };
     const updated = messages.map((m, i) =>
-      i !== mi ? m : { ...m, concepts: m.concepts?.map((x, j) => (j === ci ? { ...x, _added: true } : x)) },
+      i !== mi ? m : { ...m, concepts: m.concepts?.map((x, j) => (j === ci ? { ...x, _added: true, _id: data.id } : x)) },
     );
     setMessages(updated);
     saveConvo(updated, sources); // keep the ✓ Added state when the chat is reopened
@@ -471,7 +473,15 @@ export default function IdeateWorkspace({
                           </span>
                         ) : null}
                       </div>
-                      <h3 className="mb-3 text-[17.5px] font-semibold leading-snug text-gray-100">“{c.hook}”</h3>
+                      <h3 className="mb-3 text-[17.5px] font-semibold leading-snug text-gray-100">
+                        {c._added && c._id ? (
+                          <Link href={`/creatives/${c._id}`} className="hover:text-emerald-300 hover:underline" title="Open the concept">
+                            “{c.hook}”
+                          </Link>
+                        ) : (
+                          <>“{c.hook}”</>
+                        )}
+                      </h3>
                       <div className="mb-3 flex flex-wrap gap-2">
                         <span className={chip}><b className="font-mono text-[9.5px] text-white/45">ANGLE</b> {c.angle}</span>
                         <span className={chip}><b className="font-mono text-[9.5px] text-white/45">AUDIENCE</b> {c.archetype}</span>

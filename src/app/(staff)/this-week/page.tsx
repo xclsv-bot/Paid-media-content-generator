@@ -59,7 +59,12 @@ export default async function ThisWeekPage({
       .select(
         "id, concept_id, assignee_id, due_date, production_status, creatives(sheet_id, ad_name, hook_line, hook_angle, concept_families(name))",
       )
-      .eq("cycle_id", selected.id);
+      .eq("cycle_id", selected.id)
+      // Deterministic board order (bulk-added rows share one created_at, so the
+      // id tiebreak matters) — the concept page's prev/next pager sorts the same
+      // way so "Next" always means the row below this one.
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
 
     const rows = (delivData ?? []) as unknown as Array<{
       id: string;
