@@ -6,7 +6,7 @@
 // drift (prompt said `golden:x`, validator keyed on bare `x`) silently dropped
 // every recommendation. No imports: pure + safe for client components.
 
-export const SOURCE_KINDS = ["golden", "loser", "rejection", "explore", "validating"] as const;
+export const SOURCE_KINDS = ["golden", "loser", "rejection", "explore", "validating", "winner"] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 // Build a self-describing ref. Creative-kind refs (golden/loser/rejection) take a
@@ -46,4 +46,5 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   rejection: "rejected",
   explore: "slot",
   validating: "validating",
+  winner: "editorial winner",
 };

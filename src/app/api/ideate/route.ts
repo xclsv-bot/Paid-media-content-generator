@@ -9,6 +9,7 @@ import { findNearDuplicate, findDuplicateHook, getGoldenExamples, type GoldenExa
 import { badExampleLine, EMPTY_BAD_NOTE, getBadExamples } from "@/lib/loop/bad";
 import { sourceRef } from "@/lib/loop/sourceRef";
 import { latestCrossClientPatterns, crossClientPatternsPromptBlock } from "@/lib/loop/crossClientPatterns";
+import { breakdownsMax, breakdownsPromptBlock, getWinnerBreakdowns } from "@/lib/loop/breakdowns";
 
 export const maxDuration = 300; // give slow generations headroom (capped to plan max)
 
@@ -87,13 +88,14 @@ export async function POST(req: Request) {
   const clientDesc = org.voice_note ?? org.display_name;
 
   const target = defaultTargetCents(); // cents; contract Target CPT ($30)
-  const [{ data: families }, { data: proven }, cache, golden, bad, patterns] = await Promise.all([
+  const [{ data: families }, { data: proven }, cache, golden, bad, patterns, breakdowns] = await Promise.all([
     supabase.from("concept_families").select("name").eq("org_id", orgId).order("name"),
     supabase.from("creatives").select("hook_line, hook_angle, sport").eq("org_id", orgId).eq("is_proven", true).limit(8),
     getCachedWinners(supabase, orgId, 8),
     getGoldenExamples(supabase, orgId, 6),
     getBadExamples(supabase, orgId, 6),
     latestCrossClientPatterns(supabase),
+    getWinnerBreakdowns(supabase, orgId, breakdownsMax()),
   ]);
   const familyList = (families ?? []).map((f: { name: string }) => f.name).join(", ");
   const provenList = (proven ?? [])
@@ -139,6 +141,10 @@ export async function POST(req: Request) {
   const targetDollars = target != null ? `$${(target / 100).toFixed(2)}` : "the target";
   const learnBlock = learningsPromptBlock(await latestLearnings(supabase, orgId));
   const patternsBlock = crossClientPatternsPromptBlock(patterns);
+  // Winner breakdowns: the structural teardown behind each winner (golden-set
+  // AND staff-marked editorial winners) — the decomposed pattern to build on,
+  // where the golden block above carries the verbatim copy that worked.
+  const breakdownsBlock = breakdownsPromptBlock(breakdowns);
 
   const sourceList = (sources ?? [])
     .map((s) => `• [${s.type ?? "ref"}] ${s.name ?? ""}${s.note ? ` — ${s.note}` : ""}`)
@@ -156,9 +162,11 @@ ${perfSignals}
 
 ${goldenBlock}
 
+${breakdownsBlock}
+
 ${badBlock}
 
-Use the live signals: lean into the pattern behind the golden examples, diagnose why the losers miss and avoid their traps, never repeat a compliance mistake, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners. Do NOT near-duplicate a golden example (same family + angle + format) — vary the pattern, don't restate it.
+Use the live signals: lean into the pattern behind the golden examples and the winner breakdowns — build from their replicable patterns and "vary next" leads — diagnose why the losers miss and avoid their traps, never repeat a compliance mistake, and propose angles that both exploit what's working AND explore new formats/families to widen the set of winners. Weigh editorial picks below the CPT-proven rows. Do NOT near-duplicate a golden example (same family + angle + format) — vary the pattern, don't restate it.
 
 ${learnBlock || ""}
 

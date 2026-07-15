@@ -3,6 +3,7 @@ import { isStaff, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import WinnersRefresh from "@/components/WinnersRefresh";
 import GoldenCurationButtons from "@/components/GoldenCurationButtons";
+import { parseBreakdown, type WinnerBreakdown } from "@/lib/loop/breakdowns";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ function one<T>(v: T | T[] | null): T | null {
 
 type GoldenRow = {
   creative_id: string;
+  org_id: string;
   why_it_won: string;
   script: string;
   source: "auto" | "curated";
@@ -37,6 +39,13 @@ type GoldenRow = {
   dimensions: { family: string | null; hook_line: string | null; hook_angle: string | null; sport: string | null };
   organizations: { display_name: string } | { display_name: string }[] | null;
 };
+
+// Deep-link into Ideate with the winner's org preselected and a variant brief
+// in the composer — the forward path that closes the winners → ideation loop.
+function ideateFromWinnerHref(orgId: string, hook: string | null, family: string | null, angle: string | null): string {
+  const seed = `Variant this proven winner: "${hook ?? "?"}" (${family ?? "?"} / ${angle ?? "?"}). Use its breakdown pattern but propose a genuinely different hook.`;
+  return `/ideate?org=${orgId}&seed=${encodeURIComponent(seed)}`;
+}
 
 type BadRow = {
   id: string;
@@ -61,11 +70,11 @@ export default async function WinnersPage() {
   const staff = isStaff(user);
   const supabase = await createClient();
 
-  const [{ data: goldenData }, { data: badData }] = await Promise.all([
+  const [{ data: goldenData }, { data: badData }, { data: breakdownData }] = await Promise.all([
     supabase
       .from("golden_examples")
       .select(
-        "creative_id, why_it_won, script, source, status, cpt_cents, results, dimensions, organizations(display_name)",
+        "creative_id, org_id, why_it_won, script, source, status, cpt_cents, results, dimensions, organizations(display_name)",
       )
       .order("score", { ascending: false }),
     supabase
@@ -73,11 +82,29 @@ export default async function WinnersPage() {
       .select("id, kind, creative_id, reason, cpt_cents, target_cents, results, dimensions, organizations(display_name)")
       .order("captured_at", { ascending: false })
       .limit(30),
+    supabase
+      .from("winner_breakdowns")
+      .select(
+        "creative_id, org_id, source, status, breakdown, dimensions, input_hash, script_version, why_it_won, cpt_cents, results, target_cents, generated_at, organizations(display_name)",
+      )
+      .eq("status", "active")
+      .order("generated_at", { ascending: false }),
   ]);
   // RLS scopes these: staff see everything (incl. removed tombstones, greyed
-  // below), creators see non-removed golden rows, clients see none.
+  // below), creators see non-removed golden rows + active breakdowns, clients
+  // see none.
   const goldenRows = (goldenData ?? []) as unknown as GoldenRow[];
   const badRows = (badData ?? []) as unknown as BadRow[];
+  // Re-validate the teardown jsonb before rendering (same seam as
+  // getWinnerBreakdowns): one malformed row must never 500 the page.
+  const breakdownRows = ((breakdownData ?? []) as unknown as (WinnerBreakdown & {
+    organizations: { display_name: string } | { display_name: string }[] | null;
+  })[])
+    .map((b) => {
+      const parsed = parseBreakdown(b.breakdown);
+      return parsed ? { ...b, breakdown: parsed } : null;
+    })
+    .filter((b): b is NonNullable<typeof b> => b !== null);
 
   const { data } = await supabase
     .from("content_cache")
@@ -195,12 +222,81 @@ export default async function WinnersPage() {
                       {dim.family ?? "—"} / {dim.hook_angle ?? "—"} / {dim.sport ?? "—"} · CPT ${(g.cpt_cents / 100).toFixed(2)} · {g.results} trials
                     </span>
                     {staff && (
-                      <span className="ml-auto">
+                      <span className="ml-auto flex items-center gap-3">
+                        {!tombstone && (
+                          <Link
+                            href={ideateFromWinnerHref(g.org_id, dim.hook_line, dim.family, dim.hook_angle)}
+                            className="text-[12px] text-emerald-300 hover:underline"
+                          >
+                            Ideate from this winner →
+                          </Link>
+                        )}
                         <GoldenCurationButtons creativeId={g.creative_id} status={g.status} />
                       </span>
                     )}
                   </div>
                   <p className="text-[12.5px] text-white/60">{g.why_it_won}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {breakdownRows.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-1 text-lg font-medium">Winner breakdowns</h2>
+          <p className="mb-2 text-[13px] text-white/50">
+            The structural teardown behind each winner — hook mechanics, beats, proof, CTA, and the
+            replicable pattern. Generated automatically for golden-set winners and concepts marked
+            Winner; Ideate and script generation ground on these.
+          </p>
+          <div className="flex flex-col gap-2">
+            {breakdownRows.map((b) => {
+              const org = one(b.organizations);
+              const dim = b.dimensions ?? {};
+              const bd = b.breakdown;
+              const editorial = b.source === "editorial";
+              return (
+                <div key={b.creative_id} className="rounded-[12px] border border-white/10 bg-white/[0.025] p-3.5">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${editorial ? "bg-violet-400/15 text-violet-300" : "bg-emerald-400/15 text-emerald-300"}`}>
+                      {editorial ? "editorial" : "performance"}
+                    </span>
+                    {staff && <span className="text-[11.5px] text-white/40">{org?.display_name ?? "—"}</span>}
+                    <Link href={`/creatives/${b.creative_id}`} className="text-[14px] font-medium text-sky-300 hover:underline">
+                      “{dim.hook_line ?? "?"}”
+                    </Link>
+                    <span className="text-[12px] text-white/45">
+                      {dim.family ?? "—"} / {dim.hook_angle ?? "—"} / {dim.sport ?? "—"}
+                      {b.cpt_cents != null && ` · CPT $${(b.cpt_cents / 100).toFixed(2)}`}
+                      {b.results != null && ` · ${b.results} trials`}
+                    </span>
+                    {staff && (
+                      <span className="ml-auto">
+                        <Link
+                          href={ideateFromWinnerHref(b.org_id, dim.hook_line, dim.family, dim.hook_angle)}
+                          className="text-[12px] text-emerald-300 hover:underline"
+                        >
+                          Ideate from this winner →
+                        </Link>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[12.5px] text-white/70">{bd.replicable_pattern}</p>
+                  <details className="mt-1.5">
+                    <summary className="cursor-pointer text-[12px] text-white/45 hover:text-white/70">
+                      Full teardown
+                    </summary>
+                    <div className="mt-2 flex flex-col gap-1.5 text-[12.5px] text-white/60">
+                      <p><span className="text-white/40">Hook ({bd.hook.device}):</span> {bd.hook.first_three_seconds} — {bd.hook.why_it_works}</p>
+                      <p><span className="text-white/40">Beats:</span> {bd.beats.map((x) => `${x.beat} (${x.purpose})`).join(" → ")}</p>
+                      <p><span className="text-white/40">Proof:</span> {bd.proof_device}</p>
+                      <p><span className="text-white/40">CTA:</span> “{bd.cta.text}” — {bd.cta.placement}, {bd.cta.style}</p>
+                      <p><span className="text-white/40">Delivery:</span> {bd.delivery.pacing} · {bd.delivery.format_rationale} · {bd.delivery.talent_rationale} · {bd.delivery.theme}</p>
+                      <p><span className="text-white/40">Vary next:</span> {bd.vary_next.join("; ")}</p>
+                    </div>
+                  </details>
                 </div>
               );
             })}

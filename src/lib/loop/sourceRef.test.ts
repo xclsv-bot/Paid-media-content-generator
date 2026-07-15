@@ -29,6 +29,7 @@ describe("sourceRef — one format, round-trips cleanly", () => {
     expect(sourceRefTable("golden")).toBe("creatives");
     expect(sourceRefTable("loser")).toBe("creatives");
     expect(sourceRefTable("rejection")).toBe("creatives");
+    expect(sourceRefTable("winner")).toBe("creatives");
     expect(sourceRefTable("explore")).toBe("concept_families");
     expect(sourceRefTable("validating")).toBe("concept_families");
   });
