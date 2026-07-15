@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
-import { defaultTargetCents, isHit, type CreativePerf } from "@/lib/metrics/perf";
+import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import VideoUploader from "@/components/VideoUploader";
 import VideoGallery from "@/components/VideoGallery";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
@@ -45,9 +45,16 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
     .single();
   if (!creative) notFound();
 
-  const [{ data: assets }, { data: perf }, { data: scripts }, { data: refs }] = await Promise.all([
+  // Reported performance comes straight from the weekly-report rows, joined by
+  // the org stamp + this concept's ad name (the old creative_performance view
+  // joined by name alone). No ad name → the .eq("") matches nothing.
+  const [{ data: assets }, { data: metricRows }, { data: scripts }, { data: refs }] = await Promise.all([
     supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at, uploaded_by, transcript, transcript_status").eq("creative_id", id).order("uploaded_at", { ascending: false }),
-    supabase.from("creative_performance").select("creative_id, spend, impressions, clicks, results, ctr, cpt, last_updated").eq("creative_id", id).single(),
+    supabase
+      .from("creative_metrics")
+      .select("flight_label, flight_start, created_at, spend, conversions, cpa, ctr, verdict, reason")
+      .eq("org_id", creative.org_id ?? "")
+      .eq("ad_name", creative.ad_name ?? ""),
     supabase.from("scripts").select("id, body, source, status, version, model, created_at").eq("concept_id", id).order("version", { ascending: false }),
     supabase.from("concept_references").select("id, kind, url, storage_path, label").eq("concept_id", id).order("created_at", { ascending: true }),
   ]);
@@ -195,7 +202,14 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
             <WeekAssignment conceptId={creative.id} slots={weekSlots} cycles={weekCycles} />
           )}
 
-          {!creator && <PerformancePanel perf={(perf as unknown as CreativePerf) ?? null} targetCents={creative.cpt_target_cents ?? defaultTargetCents()} />}
+          {!creator && (
+            <ReportedPerformance
+              rows={(metricRows as ReportRowLite[]) ?? []}
+              targetCents={creative.cpt_target_cents ?? defaultTargetCents()}
+              hasAdName={!!creative.ad_name}
+              staff={staff}
+            />
+          )}
           {staff && creative.ad_name && (
             <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
               <div className="mb-3 font-mono text-[11px] uppercase tracking-wide text-white/45">Log performance</div>
@@ -258,32 +272,98 @@ function Spec({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-function PerformancePanel({ perf, targetCents }: { perf: CreativePerf | null; targetCents: number | null }) {
-  const hasData = perf && Number(perf.spend) > 0;
-  const cpt = perf?.cpt != null ? Number(perf.cpt) : null;
-  const hit = isHit(cpt, targetCents);
+type ReportRowLite = {
+  flight_label: string;
+  flight_start: string | null;
+  created_at: string | null;
+  spend: number | null;
+  conversions: number | null;
+  cpa: number | null;
+  ctr: number | null;
+  verdict: string | null;
+  reason: string | null;
+};
+
+const VERDICT_LABEL: Record<string, string> = { GRADUATE: "Graduated", ITERATE: "Iterate", KEEP_TESTING: "Keep testing", KILL: "Stopped" };
+const VERDICT_PILL: Record<string, string> = {
+  GRADUATE: "bg-emerald-500/15 text-emerald-300",
+  ITERATE: "bg-orange-500/15 text-orange-300",
+  KEEP_TESTING: "bg-sky-500/15 text-sky-300",
+  KILL: "bg-red-500/15 text-red-300",
+};
+
+// The concept's own view of the weekly report: headline numbers from the most
+// recent report row (Spend/Conv read as flight-to-date running totals) plus
+// each week it appeared in.
+function ReportedPerformance({
+  rows,
+  targetCents,
+  hasAdName,
+  staff,
+}: {
+  rows: ReportRowLite[];
+  targetCents: number | null;
+  hasAdName: boolean;
+  staff: boolean;
+}) {
   const usd = (n: number | null | undefined) => (n == null ? "—" : `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
-  const num = (n: number | null | undefined) => (n == null ? "—" : Number(n).toLocaleString());
+  const recency = (m: ReportRowLite) => m.flight_start ?? m.created_at ?? "";
+  const sorted = [...rows].sort((a, b) => (recency(a) < recency(b) ? 1 : -1));
+  const latest = sorted[0] ?? null;
+  const cpa = latest ? (latest.cpa != null ? Number(latest.cpa) : null) : null;
+  const hit = isHit(cpa, targetCents);
 
   return (
     <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
       <div className="mb-3 flex items-center gap-2">
         <span className="font-mono text-[11px] uppercase tracking-wide text-white/45">Performance</span>
-        {hit !== null && (
-          <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-semibold ${hit ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>
-            {hit ? "Hit ✓" : "Miss"}
+        {latest?.verdict && VERDICT_LABEL[latest.verdict] && (
+          <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-semibold ${VERDICT_PILL[latest.verdict] ?? ""}`}>
+            {VERDICT_LABEL[latest.verdict]}
           </span>
         )}
       </div>
-      {!hasData ? (
-        <p className="text-[12.5px] text-white/40">No data yet — numbers appear once this ad shows up in a weekly report.</p>
+      {!latest ? (
+        <p className="text-[12.5px] text-white/40">
+          {hasAdName
+            ? "Not in a weekly report yet — numbers appear once this ad name shows up in an imported report."
+            : staff
+              ? "No ad name on this concept — set one (Edit brief) so report rows can join to it."
+              : "No data yet."}
+        </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2.5">
-          <Metric label="Spend" value={usd(perf!.spend)} />
-          <Metric label="CPT" value={usd(cpt)} accent={hit} />
-          <Metric label="CTR" value={perf!.ctr == null ? "—" : `${(Number(perf!.ctr) * 100).toFixed(2)}%`} />
-          <Metric label="Results" value={num(perf!.results)} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Metric label="Spend" value={usd(latest.spend)} />
+            <Metric label="CPA" value={usd(cpa)} accent={hit} />
+            <Metric label="CTR" value={latest.ctr == null ? "—" : `${(Number(latest.ctr) * 100).toFixed(2)}%`} />
+            <Metric label="Trials" value={latest.conversions == null ? "—" : Number(latest.conversions).toLocaleString()} />
+          </div>
+          <div className="mt-2 text-[11px] text-white/40">As of {latest.flight_label}.</div>
+          {latest.reason && <div className="mt-1.5 text-[12px] leading-snug text-white/55">{latest.reason}</div>}
+          {sorted.length > 1 && (
+            <table className="mt-3 w-full text-left text-[12px]">
+              <thead className="text-white/40">
+                <tr>
+                  <th className="py-1 font-normal">Week</th>
+                  <th className="py-1 text-right font-normal">Spend</th>
+                  <th className="py-1 text-right font-normal">Trials</th>
+                  <th className="py-1 text-right font-normal">CPA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((m) => (
+                  <tr key={m.flight_label} className="border-t border-white/[0.06] text-white/70">
+                    <td className="max-w-[110px] truncate py-1" title={m.flight_label}>{m.flight_label}</td>
+                    <td className="py-1 text-right tabular-nums">{usd(m.spend)}</td>
+                    <td className="py-1 text-right tabular-nums">{m.conversions ?? "—"}</td>
+                    <td className="py-1 text-right tabular-nums">{usd(m.cpa)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
     </div>
   );
