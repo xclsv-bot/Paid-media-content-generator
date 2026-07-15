@@ -172,25 +172,35 @@ ${learnBlock || ""}
 
 ${patternsBlock || ""}
 
-When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, a one-sentence hypothesis stating what it tests and why you expect it to work, and the three naming-convention slots: format (Video = full-length 9:16; Short Video = quick cutdown), talent (Face = creator on camera; No Face = screen-record/faceless), and theme (Information, Winning, Process, Product, or Community — the emotional register of the hook). Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
+When the user shares context (call transcripts, references, performance signals) and asks for angles, propose 1–3 concrete concepts. Each concept needs: a family (reuse an existing one when it fits, or name a new one), a punchy hook line (the spoken/on-screen opener), an angle, an audience archetype (Qualifier = high-intent existing bettors; Broad-appeal = cold/casual; Mixed), a sport, a product feature/pillar, a one-sentence hypothesis stating what it tests and why you expect it to work, and the three naming-convention slots: format (Video = full-length 9:16; Short Video = quick cutdown), talent (Face = creator on camera; No Face = screen-record/faceless), and theme (Information, Winning, Process, Product, or Community — the emotional register of the hook). Ground every concept in what the user actually shared and the live signals. Keep "reply" to a few sentences of strategic reasoning, in plain conversational text — no HTML tags, no markdown formatting; put the concepts themselves in the concepts array. If the user is just chatting or refining and you have no new concept to add, return an empty concepts array.`;
 
-  const apiMessages = messages.map((m) => ({
-    role: m.role === "ai" ? ("assistant" as const) : ("user" as const),
-    content: m.text,
-  }));
-  // Attach the current sources to the latest user turn for context.
-  if (sourceList && apiMessages.length) {
-    const last = apiMessages[apiMessages.length - 1];
-    if (last.role === "user") {
-      last.content = `${last.content}\n\n[Attached sources the agent should use]\n${sourceList}`;
-    }
+  // Fable 5 requires replayed assistant turns to carry their thinking blocks,
+  // which this chat doesn't store — replaying them as bare text garbles the
+  // model's output more with every turn. So the conversation goes up as ONE
+  // user turn: prior exchanges as a transcript, then the new message.
+  const history = messages.slice(0, -1);
+  const latest = messages[messages.length - 1];
+  const transcript = history
+    .map((m) => `${m.role === "ai" ? "You (strategist)" : "User"}: ${m.text}`)
+    .join("\n\n");
+  let content = latest.text;
+  if (transcript) {
+    content = `[Conversation so far]\n${transcript}\n\n[New message]\n${latest.text}`;
   }
+  if (sourceList) {
+    content = `${content}\n\n[Attached sources the agent should use]\n${sourceList}`;
+  }
+  const apiMessages = [{ role: "user" as const, content }];
 
   try {
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
+    // Fable 5 for ideation (thinking is always on — no thinking param). Its
+    // safety classifiers can rarely false-positive, so a declined request
+    // retries server-side on Opus 4.8 instead of dead-ending the chat.
+    const response = await client.beta.messages.create({
+      model: "claude-fable-5",
       max_tokens: 4096,
-      thinking: { type: "adaptive" },
+      betas: ["server-side-fallback-2026-06-01"],
+      fallbacks: [{ model: "claude-opus-4-8" }],
       // Low effort keeps the chat responsive and well under the function timeout
       // (a longer "refine" turn at medium effort was overrunning it).
       output_config: { effort: "low", format: { type: "json_schema", schema: CONCEPT_SCHEMA } },
@@ -218,7 +228,10 @@ When the user shares context (call transcripts, references, performance signals)
       near_duplicate: findNearDuplicate(con, golden.examples),
       blocked_duplicate: findDuplicateHook(con.hook, golden.examples),
     }));
-    return NextResponse.json({ reply: parsed.reply ?? "", concepts });
+    // The chat renders plain text; convert any stray HTML breaks the model
+    // emits into real newlines instead of showing literal tags.
+    const reply = String(parsed.reply ?? "").replace(/<br\s*\/?>/gi, "\n").trim();
+    return NextResponse.json({ reply, concepts });
   } catch (e) {
     // Missing/expired/invalid credentials → surface as "not configured".
     if (e instanceof Anthropic.AuthenticationError) {
