@@ -9,7 +9,7 @@ import VideoGallery from "@/components/VideoGallery";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
 import BriefActions from "@/components/BriefActions";
-import WeekAssignment, { type WeekCycle, type WeekSlot } from "@/components/WeekAssignment";
+import WeekAssignment, { type WeekCycle, type WeekPerson, type WeekSlot } from "@/components/WeekAssignment";
 import AdNameTag from "@/components/AdNameTag";
 import PerformanceQuickEntry from "@/components/PerformanceQuickEntry";
 import DiscussionThread, { type Note } from "@/components/DiscussionThread";
@@ -77,18 +77,21 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   // so staff can move a misfiled concept without leaving the page.
   let weekSlots: WeekSlot[] = [];
   let weekCycles: WeekCycle[] = [];
+  let weekPeople: WeekPerson[] = [];
   if (staff && creative.org_id) {
-    const [{ data: slotRows }, { data: cycleRows }] = await Promise.all([
-      supabase.from("deliverables").select("id, cycle_id").eq("concept_id", id),
+    const [{ data: slotRows }, { data: cycleRows }, { data: peopleRows }] = await Promise.all([
+      supabase.from("deliverables").select("id, cycle_id, assignee_id").eq("concept_id", id),
       supabase
         .from("cycles")
         .select("id, label, status")
         .eq("org_id", creative.org_id)
         .order("starts_on", { ascending: false })
         .limit(20),
+      supabase.from("users").select("id, name, role").in("role", ["creator", "editor", "admin"]).order("name"),
     ]);
     weekSlots = (slotRows as WeekSlot[]) ?? [];
     weekCycles = (cycleRows as WeekCycle[]) ?? [];
+    weekPeople = (peopleRows as WeekPerson[]) ?? [];
   }
 
   // Internal creator ↔ staff discussion (not loaded for clients).
@@ -199,7 +202,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
           </div>
 
           {staff && weekCycles.length > 0 && (
-            <WeekAssignment conceptId={creative.id} slots={weekSlots} cycles={weekCycles} />
+            <WeekAssignment conceptId={creative.id} slots={weekSlots} cycles={weekCycles} people={weekPeople} />
           )}
 
           {!creator && (
