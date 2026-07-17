@@ -106,7 +106,10 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
         .from("deliverables")
         .select("concept_id, production_status, creatives(hook_line, sheet_id)")
         .eq("cycle_id", pagerCycle.id)
-        .order("created_at", { ascending: true });
+        // Same order as the This Week board (created_at, id) so Next = the row
+        // below on the board, top to bottom.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
       const items: PagerItem[] = ((siblingRows ?? []) as unknown as Array<{
         concept_id: string;
         production_status: string;

@@ -301,7 +301,13 @@ export default function WeekBoard({
               <tr key={d.id} className="border-t border-white/5 hover:bg-white/5">
                 <td className="px-3 py-2 text-white/50">{d.sheet_id}</td>
                 <td className="px-3 py-2">
-                  <div className="truncate" title={d.hook_line ?? undefined}>{d.hook_line}</div>
+                  <Link
+                    href={`/creatives/${d.concept_id}`}
+                    className="block truncate hover:text-emerald-300 hover:underline"
+                    title={d.hook_line ?? undefined}
+                  >
+                    {d.hook_line}
+                  </Link>
                   <div className="truncate text-xs text-white/40">{d.family} · {d.hook_angle}</div>
                   {d.ad_name && (
                     <div className="mt-0.5 truncate font-mono text-[10.5px] text-white/35" title={d.ad_name}>{d.ad_name}</div>
@@ -324,7 +330,6 @@ export default function WeekBoard({
                 <td className="px-3 py-2 text-center">{d.has_video ? <span className="text-emerald-400" role="img" aria-label="Has video">✓</span> : <span className="text-white/30" role="img" aria-label="No video yet">—</span>}</td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-3 whitespace-nowrap">
-                    <Link href={`/creatives/${d.concept_id}`} className="text-emerald-400 hover:underline">Open</Link>
                     {moveTargets.length > 0 && (
                       <select
                         value=""
