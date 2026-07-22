@@ -179,6 +179,85 @@ export default async function PerformancePage({
   const byTheme = rollup((m) => parseNamingConvention(m.ad_name).theme ?? null);
   const bySport = rollup((m) => parseNamingConvention(m.ad_name).sport ?? null);
 
+  // ---- Signals: the paid team's reads, computed live from the same rows ----
+  // Confidence is keyed to spend: ~3.5× the CPA target is the gate where a
+  // read starts to mean something; 5× the gate is full confidence. Below the
+  // gate a great CPA is a promising signal, not a proven one.
+  const gate = targetDollars != null ? targetDollars * 3.5 : null;
+  const spendBand = (spend: number): "Proven" | "Testing" | "Early" | null =>
+    gate == null ? null : spend >= gate * 5 ? "Proven" : spend >= gate ? "Testing" : "Early";
+  const pctWorse = (worse: number, better: number) => Math.round(((worse - better) / better) * 100);
+  const share = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+
+  type Signal = { title: string; headline: string; detail: string; accent?: boolean };
+  const signals: Signal[] = [];
+
+  // 1. Dominant hook (theme): the one with the most trials vs everything else blended.
+  const themed = byTheme.filter((r) => r.key !== "—" && r.conv > 0);
+  if (themed.length >= 1 && byTheme.length >= 2) {
+    const top = [...themed].sort((a, b) => b.conv - a.conv)[0];
+    const rest = byTheme.filter((r) => r.key !== top.key);
+    const rSpend = rest.reduce((s, r) => s + r.spend, 0);
+    const rConv = rest.reduce((s, r) => s + r.conv, 0);
+    if (top.cpa != null && rConv > 0) {
+      const rCpa = rSpend / rConv;
+      signals.push({
+        title: `“${top.key}” is the lead hook`,
+        headline: `${usd(top.cpa)} / trial`,
+        detail: `${top.n} ad${top.n === 1 ? "" : "s"} · ${usd(top.spend)} (${share(top.spend, totSpend)}% of spend) → ${top.conv} trials. Every other hook blended: ${usd(rCpa)} — ${pctWorse(rCpa, top.cpa)}% more expensive. The hook is the format that works, not one good ad.`,
+        accent: targetDollars != null && top.cpa <= targetDollars,
+      });
+    }
+  }
+
+  // 2. Workhorse: the single ad carrying the most trials.
+  if (totConv > 0 && metrics.length > 1) {
+    const work = [...metrics].sort((a, b) => Number(b.conversions || 0) - Number(a.conversions || 0))[0];
+    const wConv = Number(work.conversions || 0);
+    if (wConv > 0) {
+      signals.push({
+        title: "Workhorse",
+        headline: shortName(work.ad_name),
+        detail: `${usd(work.spend)} → ${wConv} trials at ${usd(work.cpa)} — ${share(wConv, totConv)}% of all trials this period.${spendBand(Number(work.spend || 0)) === "Proven" ? " Fully proven volume." : ""}`,
+        accent: work.cpa != null && targetDollars != null && Number(work.cpa) <= targetDollars,
+      });
+    }
+  }
+
+  // 3. Best unit economics — cheapest trials with at least a couple of them,
+  // labeled honestly when the spend is too small to call it proven.
+  const efficient = metrics
+    .filter((m) => Number(m.conversions || 0) >= 2 && m.cpa != null)
+    .sort((a, b) => Number(a.cpa) - Number(b.cpa))[0];
+  if (efficient) {
+    const b = spendBand(Number(efficient.spend || 0));
+    const roas = efficient.roas != null ? ` · ROAS ${Number(efficient.roas).toFixed(2)}` : "";
+    signals.push({
+      title: "Best unit economics",
+      headline: `${usd(efficient.cpa)} / trial`,
+      detail: `${shortName(efficient.ad_name)} — ${usd(efficient.spend)} → ${efficient.conversions} trials${roas}.${b === "Early" ? ` Only ${usd(efficient.spend)} in, so promising rather than proven — the cheapest trials in the set usually earn the next test budget.` : ""}`,
+      accent: efficient.cpa != null && targetDollars != null && Number(efficient.cpa) <= targetDollars,
+    });
+  }
+
+  // 4. Sport edge: best-converting sport vs the rest blended.
+  const sported = bySport.filter((r) => r.key !== "—" && r.conv > 0);
+  if (sported.length >= 1 && bySport.length >= 2) {
+    const top = [...sported].sort((a, b) => b.conv - a.conv)[0];
+    const rest = bySport.filter((r) => r.key !== top.key);
+    const rSpend = rest.reduce((s, r) => s + r.spend, 0);
+    const rConv = rest.reduce((s, r) => s + r.conv, 0);
+    if (top.cpa != null && rConv > 0) {
+      const rCpa = rSpend / rConv;
+      signals.push({
+        title: `${top.key} carries the account`,
+        headline: `${usd(top.cpa)} blended`,
+        detail: `${usd(top.spend)} on ${top.key} → ${top.conv} trials. Other sports blend to ${usd(rCpa)} — ${pctWorse(rCpa, top.cpa)}% worse. The sport is doing work, not just the hook.`,
+        accent: targetDollars != null && top.cpa <= targetDollars,
+      });
+    }
+  }
+
   return (
     <main className="mx-auto max-w-6xl p-6 pb-24">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -217,6 +296,25 @@ export default async function PerformancePage({
             <Tile label="Blended CPA" value={usd(blendedCpa)} accent={blendedCpa != null && targetDollars != null && blendedCpa <= targetDollars} />
             <Tile label={view === "total" ? "Graduated (all ads)" : "Graduated"} value={`${grads} / ${metrics.length}`} accent={grads > 0} />
           </div>
+
+          {/* Signals — the paid team's reads, computed from this period's rows */}
+          {signals.length > 0 && (
+            <section className="mb-10">
+              <h2 className="mb-1 text-lg font-medium">Signals</h2>
+              <p className="mb-4 text-xs text-white/45">
+                Computed from {view === "week" ? "this week's report" : "the whole contract"} — dominant hook, workhorse, unit economics, sport edge.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {signals.map((s) => (
+                  <div key={s.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="font-mono text-[10px] uppercase tracking-wide text-white/40">{s.title}</div>
+                    <div className={`mt-1 text-lg font-semibold ${s.accent ? "text-emerald-300" : "text-gray-50"}`}>{s.headline}</div>
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/60">{s.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Verdict groups */}
           <div className="mb-10 space-y-6">
@@ -301,8 +399,8 @@ export default async function PerformancePage({
               Blended CPA by the name&apos;s dimensions (each ad counted once). This is what feeds the next slate.
             </p>
             <div className="grid gap-4 md:grid-cols-2">
-              <RollupCard title="By theme" rows={byTheme} target={targetDollars} />
-              <RollupCard title="By sport" rows={bySport} target={targetDollars} />
+              <RollupCard title="By theme" rows={byTheme} target={targetDollars} totalSpend={totSpend} gate={gate} />
+              <RollupCard title="By sport" rows={bySport} target={targetDollars} totalSpend={totSpend} gate={gate} />
             </div>
           </section>
 
@@ -336,10 +434,14 @@ function RollupCard({
   title,
   rows,
   target,
+  totalSpend,
+  gate,
 }: {
   title: string;
   rows: { key: string; spend: number; conv: number; grads: number; n: number; cpa: number | null }[];
   target: number | null;
+  totalSpend: number;
+  gate: number | null;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-white/10">
@@ -348,6 +450,7 @@ function RollupCard({
         <thead className="text-white/50">
           <tr>
             <th className="px-3 py-1.5 font-normal">Value</th>
+            <th className="px-3 py-1.5 text-right font-normal">Spend</th>
             <th className="px-3 py-1.5 text-right font-normal">Conv</th>
             <th className="px-3 py-1.5 text-right font-normal">CPA</th>
             <th className="px-3 py-1.5 text-right font-normal">Grad</th>
@@ -356,9 +459,21 @@ function RollupCard({
         <tbody>
           {rows.map((r) => {
             const good = r.cpa != null && target != null && r.cpa <= target;
+            const early = gate != null && r.spend < gate;
+            const pct = totalSpend > 0 ? Math.round((r.spend / totalSpend) * 100) : 0;
             return (
               <tr key={r.key} className="border-t border-white/5">
-                <td className="px-3 py-1.5">{r.key}</td>
+                <td className="px-3 py-1.5">
+                  {r.key}
+                  {early && (
+                    <span className="ml-1.5 rounded bg-white/10 px-1 py-0.5 align-middle text-[9.5px] uppercase tracking-wide text-white/45" title="Spend is below the confidence gate — treat the CPA as a signal, not proof">
+                      early
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-white/60">
+                  {usd(r.spend)} <span className="text-[11px] text-white/35">{pct}%</span>
+                </td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-white/60">{r.conv}</td>
                 <td className={`px-3 py-1.5 text-right tabular-nums ${r.cpa == null ? "text-white/40" : good ? "text-emerald-300" : "text-red-300"}`}>
                   {usd(r.cpa)}
