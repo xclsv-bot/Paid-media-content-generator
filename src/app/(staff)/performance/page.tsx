@@ -66,11 +66,11 @@ function shortName(adName: string): string {
 export default async function PerformancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string; view?: string; flight?: string }>;
+  searchParams: Promise<{ org?: string; view?: string; week?: string }>;
 }) {
   const user = await requireStaff();
   const supabase = await createClient();
-  const { org: orgParam, view: viewParam, flight: flightParam } = await searchParams;
+  const { org: orgParam, view: viewParam, week: weekParam } = await searchParams;
 
   // Learnings/pattern-promotion are per-org. Staff can view any client org
   // (default: the first non-agency org); a client_viewer only ever has their
@@ -116,39 +116,72 @@ export default async function PerformancePage({
     conceptsByName.set(c.ad_name, list);
   }
 
-  // Two views over the same rows: a single weekly report, or contract-to-date
-  // (every week since the contract started, mid-June). Photo imports carry no
-  // flight_start, so recency falls back to when the row was imported.
+  // Two views over the same rows: one WEEK CYCLE (the same weeks as This
+  // Week), or contract-to-date. Photo imports carry no flight_start, so
+  // recency falls back to when the row was imported.
   const recency = (m: Metric) => m.flight_start ?? m.created_at ?? "";
   const view: "week" | "total" = viewParam === "total" ? "total" : "week";
 
-  // Weeks (flight labels), newest first.
-  const flightRecency = new Map<string, string>();
+  // Distinct report imports — only used for the contract-to-date subtitle.
+  const flightLabels = new Set(all.map((m) => m.flight_label));
+  const weeksInPeriod = view === "week" ? 1 : flightLabels.size;
+
+  // Latest row per ad: the report's Spend/Conv are FLIGHT-to-date running
+  // totals (a graduation report re-states each still-testing ad with updated
+  // cumulative numbers every week), so an ad's most recent row already carries
+  // its to-date performance — summing weeks would double-count. Killed ads
+  // keep their final week's row, so nothing drops out.
+  const latestByAd = new Map<string, Metric>();
   for (const m of all) {
-    const r = recency(m);
-    if (r > (flightRecency.get(m.flight_label) ?? "")) flightRecency.set(m.flight_label, r);
+    const prev = latestByAd.get(m.ad_name);
+    if (!prev || recency(m) > recency(prev)) latestByAd.set(m.ad_name, m);
   }
-  const flights = [...flightRecency.entries()].sort((a, b) => (a[1] < b[1] ? 1 : -1)).map(([label]) => label);
-  const selectedFlight = flightParam && flights.includes(flightParam) ? flightParam : flights[0] ?? null;
-  const weeksInPeriod = view === "week" ? 1 : flights.length;
-  const firstWeek = flights[flights.length - 1] ?? null;
+
+  // The week picker IS the This Week cycle list: a cycle's performance pools
+  // from the concepts scheduled in it, joined to metrics by ad name. Ads whose
+  // name matches no scheduled concept land in an "Unscheduled" bucket so
+  // imported data is never invisible.
+  const { data: cycleRows } = await supabase
+    .from("cycles")
+    .select("id, label, status")
+    .eq("org_id", orgId ?? "")
+    .order("starts_on", { ascending: false });
+  const cyclesList = (cycleRows ?? []) as { id: string; label: string; status: string }[];
+  const { data: slotRows } = cyclesList.length
+    ? await supabase
+        .from("deliverables")
+        .select("cycle_id, creatives(ad_name)")
+        .in("cycle_id", cyclesList.map((c) => c.id))
+    : { data: [] };
+  const adsByCycle = new Map<string, Set<string>>();
+  const scheduledAds = new Set<string>();
+  for (const s of (slotRows ?? []) as Array<{ cycle_id: string; creatives: { ad_name: string | null } | { ad_name: string | null }[] | null }>) {
+    const c = Array.isArray(s.creatives) ? s.creatives[0] : s.creatives;
+    if (!c?.ad_name) continue;
+    if (!adsByCycle.has(s.cycle_id)) adsByCycle.set(s.cycle_id, new Set());
+    adsByCycle.get(s.cycle_id)!.add(c.ad_name);
+    scheduledAds.add(c.ad_name);
+  }
+  const unscheduledAds = [...latestByAd.keys()].filter((n) => !scheduledAds.has(n));
+  const reportedCount = (cid: string) => [...(adsByCycle.get(cid) ?? [])].filter((n) => latestByAd.has(n)).length;
+  const weekOptions = [
+    ...cyclesList.map((c) => ({ value: c.id, label: `${c.label} · ${reportedCount(c.id)} reported` })),
+    ...(unscheduledAds.length ? [{ value: "unscheduled", label: `Unscheduled ads · ${unscheduledAds.length}` }] : []),
+  ];
+  const defaultWeek = cyclesList.find((c) => reportedCount(c.id) > 0)?.id ?? weekOptions[0]?.value ?? null;
+  const selectedWeek = weekParam && weekOptions.some((o) => o.value === weekParam) ? weekParam : defaultWeek;
+  const selectedWeekLabel =
+    selectedWeek === "unscheduled" ? "Unscheduled ads" : cyclesList.find((c) => c.id === selectedWeek)?.label ?? null;
 
   let metrics: Metric[];
   if (view === "week") {
-    metrics = all.filter((m) => m.flight_label === selectedFlight);
+    const names = selectedWeek === "unscheduled" ? unscheduledAds : [...(adsByCycle.get(selectedWeek ?? "") ?? [])];
+    metrics = names
+      .map((n) => latestByAd.get(n))
+      .filter((m): m is Metric => !!m)
+      .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
   } else {
-    // One row per ad across the whole contract. The report's Spend/Conv are
-    // FLIGHT-to-date running totals (a graduation report re-states each
-    // still-testing ad with updated cumulative numbers every week), so the
-    // ad's most recent row already carries its contract-to-date performance —
-    // summing weeks would double-count. Killed ads keep their final week's
-    // row, so nothing drops out of the totals.
-    const byAd = new Map<string, Metric>();
-    for (const m of all) {
-      const prev = byAd.get(m.ad_name);
-      if (!prev || recency(m) > recency(prev)) byAd.set(m.ad_name, m);
-    }
-    metrics = [...byAd.values()].sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
+    metrics = [...latestByAd.values()].sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
   }
 
   const targetCents = defaultTargetCents();
@@ -266,8 +299,8 @@ export default async function PerformancePage({
           <p className="text-sm text-white/50">
             Creative testing — graduation report
             {view === "week"
-              ? selectedFlight ? ` · ${selectedFlight}` : ""
-              : ` · Contract to date · ${weeksInPeriod} weekly report${weeksInPeriod === 1 ? "" : "s"}${firstWeek && weeksInPeriod > 1 ? ` since ${firstWeek}` : ""}`}
+              ? selectedWeekLabel ? ` · ${selectedWeekLabel}` : ""
+              : ` · Contract to date · ${weeksInPeriod} weekly report${weeksInPeriod === 1 ? "" : "s"}`}
             . CPA target {targetDollars != null ? usd(targetDollars) : "—"}.
           </p>
         </div>
@@ -279,13 +312,15 @@ export default async function PerformancePage({
         </div>
       </header>
 
-      {all.length > 0 && (
-        <PeriodPicker view={view} weeks={flights} currentWeek={selectedFlight} />
+      {(all.length > 0 || weekOptions.length > 0) && (
+        <PeriodPicker view={view} weeks={weekOptions} currentWeek={selectedWeek} />
       )}
 
       {metrics.length === 0 ? (
         <p className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/50">
-          No report loaded yet — click “Import weekly report” above and add this week&apos;s photo or rows to light this page up.
+          {all.length === 0
+            ? "No report loaded yet — click “Import weekly report” above and add this week's photo or rows to light this page up."
+            : "No reported ads in this week yet — a concept shows here once it's scheduled in the cycle AND its ad name appears in an imported report. Check the ad names match the report's spelling."}
         </p>
       ) : (
         <>

@@ -3,7 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 
 // Weekly report / Contract-to-date switch for the Performance page, plus a
-// picker for which week to show. State lives in the URL so views are
+// picker for which week to show. Weeks are the SAME cycles as This Week —
+// one shared week list across the app. State lives in the URL so views are
 // shareable and the back button works.
 export default function PeriodPicker({
   view,
@@ -11,7 +12,7 @@ export default function PeriodPicker({
   currentWeek,
 }: {
   view: "week" | "total";
-  weeks: string[];
+  weeks: { value: string; label: string }[];
   currentWeek: string | null;
 }) {
   const router = useRouter();
@@ -35,20 +36,20 @@ export default function PeriodPicker({
             onClick={() => push((p) => { p.set("view", v); })}
             className={`rounded-md px-3 py-1.5 ${view === v ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white"}`}
           >
-            {v === "week" ? "Weekly report" : "Contract to date"}
+            {v === "week" ? "Weekly" : "Contract to date"}
           </button>
         ))}
       </div>
 
-      {view === "week" && (
+      {view === "week" && weeks.length > 0 && (
         <select
           value={currentWeek ?? ""}
-          onChange={(e) => push((p) => { p.set("flight", e.target.value); })}
+          onChange={(e) => push((p) => { p.set("week", e.target.value); })}
           aria-label="Which week to show"
           className="rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-sm text-white/80 focus:border-emerald-400/50 focus:outline-none"
         >
           {weeks.map((w) => (
-            <option key={w} value={w}>{w}</option>
+            <option key={w.value} value={w.value}>{w.label}</option>
           ))}
         </select>
       )}
