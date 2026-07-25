@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
 import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 import VideoUploader from "@/components/VideoUploader";
-import ApprovalControls from "@/components/ApprovalControls";
 import VideoGallery from "@/components/VideoGallery";
 import ScriptPanel, { type Script, type Review } from "@/components/ScriptPanel";
 import ReferencesPanel, { type Reference } from "@/components/ReferencesPanel";
@@ -49,7 +48,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   // Reported performance comes straight from the weekly-report rows, joined by
   // the org stamp + this concept's ad name (the old creative_performance view
   // joined by name alone). No ad name → the .eq("") matches nothing.
-  const [{ data: assets }, { data: metricRows }, { data: scripts }, { data: refs }, { data: approvalRow }] = await Promise.all([
+  const [{ data: assets }, { data: metricRows }, { data: scripts }, { data: refs }] = await Promise.all([
     supabase.from("video_assets").select("id, file_name, version_label, storage_path, uploaded_at, uploaded_by, transcript, transcript_status").eq("creative_id", id).order("uploaded_at", { ascending: false }),
     supabase
       .from("creative_metrics")
@@ -87,7 +86,7 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
   let pager: { label: string; items: PagerItem[]; idx: number } | null = null;
   if (staff && creative.org_id) {
     const [{ data: slotRows }, { data: cycleRows }, { data: peopleRows }] = await Promise.all([
-      supabase.from("deliverables").select("id, cycle_id, assignee_id").eq("concept_id", id),
+      supabase.from("deliverables").select("id, cycle_id, assignee_id, production_status").eq("concept_id", id),
       supabase
         .from("cycles")
         .select("id, label, status")
@@ -237,12 +236,6 @@ export default async function CreativePage({ params }: { params: Promise<{ id: s
 
           {staff && weekCycles.length > 0 && (
             <WeekAssignment conceptId={creative.id} slots={weekSlots} cycles={weekCycles} people={weekPeople} />
-          )}
-
-          {/* Content sign-off — same mechanism as the Review page; only makes
-              sense once a cut has been delivered. Creators don't approve. */}
-          {!creator && videos.length > 0 && (
-            <ApprovalControls creativeId={creative.id} state={approvalRow?.state ?? "Pending"} />
           )}
 
           {!creator && (
