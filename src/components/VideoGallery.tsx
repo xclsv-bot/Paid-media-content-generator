@@ -47,7 +47,7 @@ export default function VideoGallery({
       </button>
 
       {open && (
-        <div className={`mt-3 grid gap-3 ${columns === 2 ? "sm:grid-cols-2" : ""}`}>
+        <div className={`mt-3 grid grid-cols-1 gap-3 ${columns === 2 ? "sm:grid-cols-2" : ""}`}>
           {videos.map((v) => (
             <VideoAssetCard
               key={v.id}
