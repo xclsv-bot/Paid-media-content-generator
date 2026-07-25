@@ -7,6 +7,7 @@
 export function canonicalAdName(raw: string): string {
   return raw
     .trim()
+    .replace(/(\.(mp4|mov|m4v|webm))+$/i, "") // pasted Drive filenames carry extensions
     .replace(/\s*\|\s*/g, " _ ") // Drive filenames use pipes
     .replace(/\s*_\s*/g, " _ ") // uniform " _ " around every separator
     .replace(/\s{2,}/g, " ")
