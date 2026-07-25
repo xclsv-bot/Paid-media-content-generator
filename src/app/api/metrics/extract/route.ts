@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canonicalAdName } from "@/lib/adname";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { Anthropic, createAnthropic, NOT_CONFIGURED } from "@/lib/anthropic";
 import { parseVerdict, type ReportRow } from "@/lib/metrics/report";
@@ -134,7 +135,7 @@ Rules:
     const warnings: string[] = Array.isArray(parsed.warnings) ? parsed.warnings.slice(0, 10) : [];
     const rows: ReportRow[] = [];
     for (const r of parsed.rows ?? []) {
-      const adName = typeof r.ad_name === "string" ? r.ad_name.trim() : "";
+      const adName = typeof r.ad_name === "string" ? canonicalAdName(r.ad_name) : "";
       if (!adName) continue;
       const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
       const rawVerdict = typeof r.verdict === "string" ? r.verdict : null;
