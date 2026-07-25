@@ -39,15 +39,15 @@ function matchesPerf(d: Deliverable, f: PerfFilter): boolean {
   if (f === "miss") return d.hit === false;
   return d.cpt == null;
 }
-// The row's performance one-liner, mirroring the Ideas signal footer.
+// The row's CPT-column value, mirroring the Ideas signal footer.
 function perfLine(d: Deliverable): { label: string; cls: string } | null {
   if (d.cpt != null) {
     return {
-      label: `CPT $${d.cpt.toFixed(2)} · ${d.hit ? "Hit" : "Miss"}`,
+      label: `$${d.cpt.toFixed(2)} · ${d.hit ? "Hit" : "Miss"}`,
       cls: d.hit ? "text-emerald-300" : "text-red-300",
     };
   }
-  if (d.reported) return { label: "Reported · no trials yet", cls: "text-amber-300/90" };
+  if (d.reported) return { label: "No trials yet", cls: "text-amber-300/90" };
   return null;
 }
 export type Person = { id: string; name: string | null; role: string };
@@ -100,7 +100,8 @@ export default function WeekBoard({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [confirmBulkRemove, setConfirmBulkRemove] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -245,10 +246,34 @@ export default function WeekBoard({
     );
   }
 
-  async function removeDeliverable(id: string) {
-    setConfirmRemove(null);
-    await act("Removing", () => fetch(`/api/deliverables/${id}`, { method: "DELETE" }));
+  // One request per selected row; failed rows stay selected so a retry only
+  // re-hits what actually failed.
+  async function bulkApply(label: string, makeReq: (id: string) => Promise<Response>, clearAfter: boolean) {
+    if (checked.size === 0 || busy) return;
+    setBusy(true);
+    setActionErr(null);
+    setConfirmBulkRemove(false);
+    const ids = [...checked];
+    const results = await Promise.all(ids.map((id) => makeReq(id).then((r) => r.ok).catch(() => false)));
+    const failed = ids.filter((_, i) => !results[i]);
+    if (failed.length > 0) {
+      setActionErr(`${label} failed for ${failed.length} of ${ids.length} rows — they stayed selected, try again.`);
+      setChecked(new Set(failed));
+    } else if (clearAfter) {
+      setChecked(new Set());
+    }
+    router.refresh();
+    setBusy(false);
   }
+  const bulkPatch = (label: string, patch: Record<string, unknown>, clearAfter = false) =>
+    bulkApply(label, (id) =>
+      fetch(`/api/deliverables/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      }), clearAfter);
+  const bulkRemove = () =>
+    bulkApply("Removing", (id) => fetch(`/api/deliverables/${id}`, { method: "DELETE" }), true);
 
   async function addPicked() {
     if (!selected || picked.size === 0) return;
@@ -450,27 +475,89 @@ export default function WeekBoard({
         </div>
       )}
 
+      {/* bulk actions — appear once rows are selected */}
+      {checked.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2.5 rounded-[12px] border border-emerald-400/25 bg-emerald-400/[0.05] px-4 py-2.5 text-sm">
+          <span className="text-white/70">{checked.size} selected</span>
+          <select
+            value=""
+            disabled={busy}
+            onChange={(e) => { if (e.target.value) bulkPatch("Assigning", { assignee_id: e.target.value }); }}
+            aria-label="Assign creator to selection"
+            className={sel}
+          >
+            <option value="">Assign creator…</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name ?? "user"} ({p.role})</option>)}
+          </select>
+          <select
+            value=""
+            disabled={busy}
+            onChange={(e) => { if (e.target.value) bulkPatch("Updating status", { production_status: e.target.value }); }}
+            aria-label="Set status on selection"
+            className={sel}
+          >
+            <option value="">Set status…</option>
+            {PROD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {moveTargets.length > 0 && (
+            <select
+              value=""
+              disabled={busy}
+              onChange={(e) => { if (e.target.value) bulkPatch("Moving", { cycle_id: e.target.value }, true); }}
+              aria-label="Move selection to another week"
+              className={sel}
+            >
+              <option value="">Move to week…</option>
+              {moveTargets.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          )}
+          {confirmBulkRemove ? (
+            <span className="flex items-center gap-1.5">
+              <button onClick={bulkRemove} disabled={busy} className="rounded-lg bg-red-500/80 px-2.5 py-1 text-[13px] font-medium text-black hover:bg-red-500">
+                Remove {checked.size} from week
+              </button>
+              <button onClick={() => setConfirmBulkRemove(false)} className="text-white/50 hover:text-white">Keep</button>
+            </span>
+          ) : (
+            <button onClick={() => setConfirmBulkRemove(true)} disabled={busy} className="rounded-lg border border-white/15 px-2.5 py-1 text-[13px] text-white/60 hover:bg-red-500/10 hover:text-red-300">
+              Remove from week
+            </button>
+          )}
+          <button onClick={() => { setChecked(new Set()); setConfirmBulkRemove(false); }} className="ml-auto text-white/50 hover:text-white">
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* table */}
       <div className="overflow-x-auto rounded-xl border border-white/10">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-10" />
+            <col className="w-10" />
             <col />
             <col className="w-40" />
             <col className="w-36" />
-            <col className="w-36" />
+            <col className="w-32" />
             <col className="w-14" />
-            <col className="w-44" />
           </colgroup>
           <thead className="bg-white/5 text-white/60">
             <tr>
+              <th className="px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={visible.length > 0 && visible.every((d) => checked.has(d.id))}
+                  onChange={(e) => setChecked(e.target.checked ? new Set(visible.map((d) => d.id)) : new Set())}
+                  aria-label="Select all rows"
+                  className="h-4 w-4 accent-emerald-400"
+                />
+              </th>
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">Concept</th>
               <th className="px-3 py-2">Assignee</th>
-              <th className="px-3 py-2">Due</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2 text-right">CPT</th>
               <th className="px-3 py-2 text-center">Video</th>
-              <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -483,7 +570,20 @@ export default function WeekBoard({
             {visible.map((d) => {
               const p = perfLine(d);
               return (
-              <tr key={d.id} className="border-t border-white/5 hover:bg-white/5">
+              <tr key={d.id} className={`border-t border-white/5 hover:bg-white/5 ${checked.has(d.id) ? "bg-emerald-400/[0.04]" : ""}`}>
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={checked.has(d.id)}
+                    onChange={() => {
+                      const next = new Set(checked);
+                      if (next.has(d.id)) next.delete(d.id); else next.add(d.id);
+                      setChecked(next);
+                    }}
+                    aria-label={`Select ${d.hook_line ?? "concept"}`}
+                    className="h-4 w-4 accent-emerald-400"
+                  />
+                </td>
                 <td className="px-3 py-2 text-white/50">{d.sheet_id}</td>
                 <td className="px-3 py-2">
                   <Link
@@ -493,10 +593,7 @@ export default function WeekBoard({
                   >
                     {d.hook_line}
                   </Link>
-                  <div className="truncate text-xs text-white/40">
-                    {d.family} · {d.hook_angle}
-                    {p && <span className={`ml-2 ${p.cls}`}>{p.label}</span>}
-                  </div>
+                  <div className="truncate text-xs text-white/40">{d.family} · {d.hook_angle}</div>
                   {d.ad_name && (
                     <div className="mt-0.5 truncate font-mono text-[10.5px] text-white/35" title={d.ad_name}>{d.ad_name}</div>
                   )}
@@ -504,43 +601,22 @@ export default function WeekBoard({
                 <td className="px-3 py-2">
                   <select value={d.assignee_id ?? ""} onChange={(e) => patchDeliverable(d.id, { assignee_id: e.target.value })} className={`${sel} w-full`}>
                     <option value="">—</option>
-                    {people.map((p) => <option key={p.id} value={p.id}>{p.name ?? "user"} ({p.role})</option>)}
+                    {people.map((p2) => <option key={p2.id} value={p2.id}>{p2.name ?? "user"} ({p2.role})</option>)}
                   </select>
-                </td>
-                <td className="px-3 py-2">
-                  <input type="date" value={d.due_date ?? ""} onChange={(e) => patchDeliverable(d.id, { due_date: e.target.value })} className={`${sel} w-full`} />
                 </td>
                 <td className="px-3 py-2">
                   <select value={d.production_status} onChange={(e) => patchDeliverable(d.id, { production_status: e.target.value })} className={`${sel} w-full ${STATUS_STYLE[d.production_status] ?? ""}`}>
                     {PROD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
-                <td className="px-3 py-2 text-center">{d.has_video ? <span className="text-emerald-400" role="img" aria-label="Has video">✓</span> : <span className="text-white/30" role="img" aria-label="No video yet">—</span>}</td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center justify-end gap-3 whitespace-nowrap">
-                    {moveTargets.length > 0 && (
-                      <select
-                        value=""
-                        onChange={(e) => { if (e.target.value) patchDeliverable(d.id, { cycle_id: e.target.value }); }}
-                        aria-label="Move to another week"
-                        className="w-20 rounded border border-white/10 bg-black/30 px-1 py-0.5 text-xs text-white/60"
-                      >
-                        <option value="">Move…</option>
-                        {moveTargets.map((c) => (
-                          <option key={c.id} value={c.id}>{c.label}</option>
-                        ))}
-                      </select>
-                    )}
-                    {confirmRemove === d.id ? (
-                      <span className="flex items-center gap-1.5 text-xs">
-                        <button onClick={() => removeDeliverable(d.id)} className="rounded bg-red-500/20 px-1.5 py-0.5 text-red-300 hover:bg-red-500/30">Remove</button>
-                        <button onClick={() => setConfirmRemove(null)} className="text-white/40 hover:text-white">Keep</button>
-                      </span>
-                    ) : (
-                      <button onClick={() => setConfirmRemove(d.id)} className="text-white/30 hover:text-red-300" aria-label="Remove from cycle">✕</button>
-                    )}
-                  </div>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {p ? (
+                    <span className={p.cls} title={d.reported ? undefined : "Not in a weekly report yet"}>{p.label}</span>
+                  ) : (
+                    <span className="text-white/30">—</span>
+                  )}
                 </td>
+                <td className="px-3 py-2 text-center">{d.has_video ? <span className="text-emerald-400" role="img" aria-label="Has video">✓</span> : <span className="text-white/30" role="img" aria-label="No video yet">—</span>}</td>
               </tr>
               );
             })}
