@@ -3,9 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { PROD_STATUSES } from "@/lib/deliverables";
+
 export type WeekCycle = { id: string; label: string; status: string };
-export type WeekSlot = { id: string; cycle_id: string; assignee_id: string | null };
+export type WeekSlot = { id: string; cycle_id: string; assignee_id: string | null; production_status: string };
 export type WeekPerson = { id: string; name: string | null; role: string };
+
+const STATUS_STYLE: Record<string, string> = {
+  Assigned: "text-white/60",
+  "In production": "text-sky-300",
+  Submitted: "text-violet-300",
+  "In revision": "text-amber-300",
+  Approved: "text-emerald-300",
+  Delivered: "text-emerald-400",
+};
 
 // Staff-only rail card on the concept page: shows which week(s) this concept
 // is scheduled in, moves a slot to another week (videos/assignee ride along),
@@ -67,7 +78,7 @@ export default function WeekAssignment({
 
   return (
     <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.025] p-4">
-      <div className="mb-3 font-mono text-[11px] uppercase tracking-wide text-white/45">Week & creator</div>
+      <div className="mb-3 font-mono text-[11px] uppercase tracking-wide text-white/45">Week · creator · status</div>
       {slots.length === 0 ? (
         <>
           <p className="mb-2 text-[12.5px] text-white/40">
@@ -118,6 +129,20 @@ export default function WeekAssignment({
                   <option value="">Unassigned</option>
                   {people.map((p) => (
                     <option key={p.id} value={p.id}>{p.name ?? "user"} ({p.role})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className={tag}>Status</div>
+                <select
+                  value={s.production_status}
+                  disabled={busy}
+                  onChange={(e) => patch(s.id, { production_status: e.target.value })}
+                  aria-label="Production status"
+                  className={`${sel} ${STATUS_STYLE[s.production_status] ?? ""}`}
+                >
+                  {PROD_STATUSES.map((st) => (
+                    <option key={st} value={st}>{st}</option>
                   ))}
                 </select>
               </div>
