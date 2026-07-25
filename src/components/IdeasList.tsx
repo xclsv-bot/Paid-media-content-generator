@@ -71,6 +71,7 @@ export default function IdeasList({
   const [family, setFamily] = useState("");
   const [archetype, setArchetype] = useState("");
   const [status, setStatus] = useState("");
+  const [perf, setPerf] = useState("");
   const [hideScheduled, setHideScheduled] = useState(false);
   const [view, setView] = useState<View>("cards");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -159,6 +160,11 @@ export default function IdeasList({
     if (family && r.family !== family) return false;
     if (archetype && r.archetype !== archetype) return false;
     if (status && r.idea_status !== status) return false;
+    if (perf === "hit" && r.hit !== true) return false;
+    if (perf === "miss" && r.hit !== false) return false;
+    if (perf === "notrials" && !(r.reported && r.cpt == null)) return false;
+    if (perf === "untested" && (r.reported || !r.has_video)) return false;
+    if (perf === "none" && r.reported) return false;
     if (q && !`${r.hook_line ?? ""} ${r.family ?? ""} ${r.hook_angle ?? ""}`.toLowerCase().includes(q.toLowerCase()))
       return false;
     return true;
@@ -180,6 +186,14 @@ export default function IdeasList({
           <option value="Qualifier">Qualifier</option>
           <option value="Broad-appeal">Broad-appeal</option>
           <option value="Mixed">Mixed</option>
+        </select>
+        <select value={perf} onChange={(e) => setPerf(e.target.value)} aria-label="Filter by performance" className={sel}>
+          <option value="">Any performance</option>
+          <option value="hit">Hit — CPT on target</option>
+          <option value="miss">Miss — CPT over target</option>
+          <option value="notrials">Reported · no trials</option>
+          <option value="untested">Delivered · no metrics</option>
+          <option value="none">No metrics at all</option>
         </select>
         <div className="ml-1 flex gap-1.5">
           {["", ...IDEA_STATUSES].map((s) => {

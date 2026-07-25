@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
-// PATCH /api/cycles/:id  { status }  — staff change a cycle's status.
-// Activating one cycle demotes any other Active cycle to Closed (only one active).
+// PATCH /api/cycles/:id  { status?, label? }  — staff change a cycle's status
+// and/or rename it. Activating one cycle demotes any other Active cycle to
+// Closed (only one active per org).
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -14,8 +15,15 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { status } = await req.json();
-  if (!["Planning", "Active", "Closed"].includes(status)) {
+  const { status, label } = await req.json();
+  const labelClean = typeof label === "string" ? label.trim().slice(0, 80) : undefined;
+  if (label !== undefined && !labelClean) {
+    return NextResponse.json({ error: "The label can't be empty" }, { status: 400 });
+  }
+  if (status === undefined && labelClean === undefined) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  }
+  if (status !== undefined && !["Planning", "Active", "Closed"].includes(status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
@@ -46,25 +54,37 @@ export async function PATCH(
         supabase.from("cycles").update({ status: "Active" }).eq("id", id).select().maybeSingle(),
       );
 
-  let result;
-  if (status === "Active") {
-    result = await activate();
-    let attempts = 1;
-    while (result.error?.code === "23505" && attempts < 5) {
+  let result = null;
+  if (status !== undefined) {
+    if (status === "Active") {
       result = await activate();
-      attempts++;
+      let attempts = 1;
+      while (result.error?.code === "23505" && attempts < 5) {
+        result = await activate();
+        attempts++;
+      }
+    } else {
+      result = await supabase
+        .from("cycles")
+        .update({ status })
+        .eq("id", id)
+        .select()
+        .maybeSingle();
     }
-  } else {
+    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+    if (!result.data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (labelClean !== undefined) {
     result = await supabase
       .from("cycles")
-      .update({ status })
+      .update({ label: labelClean })
       .eq("id", id)
       .select()
       .maybeSingle();
+    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+    if (!result.data) return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { data, error } = result;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ cycle: data });
+  return NextResponse.json({ cycle: result!.data });
 }
