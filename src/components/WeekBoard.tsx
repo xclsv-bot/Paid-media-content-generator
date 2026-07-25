@@ -56,16 +56,13 @@ export type Organization = { id: string; slug: string; display_name: string };
 
 import { PROD_STATUSES } from "@/lib/deliverables";
 import { parseNamingConvention } from "@/lib/client/categorize";
+import { canonicalAdName } from "@/lib/adname";
 
-// Backfill helper: turn a pasted Drive filename into the ad-name convention.
-// Accepts | or _ separators, strips stacked extensions ("....mp4.mp4").
+// Backfill helper: turn a pasted Drive filename into the ad-name convention —
+// strip stacked extensions ("....mp4.mp4"), then the shared canonical spelling
+// (the same one every import write path applies).
 function normalizeAdName(raw: string): string {
-  return raw
-    .trim()
-    .replace(/(\.(mp4|mov|m4v|webm))+$/i, "")
-    .replace(/\s*\|\s*/g, " _ ")
-    .replace(/\s*_\s*/g, " _ ")
-    .trim();
+  return canonicalAdName(raw.trim().replace(/(\.(mp4|mov|m4v|webm))+$/i, ""));
 }
 // Readable default title: the name minus the leading brand tokens.
 function titleFromAdName(ad: string): string {

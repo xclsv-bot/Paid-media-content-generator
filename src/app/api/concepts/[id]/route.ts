@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { canonicalAdName } from "@/lib/adname";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,6 +26,7 @@ export async function PATCH(
     "compliance_note", "script_doc_url", "ad_name",
   ];
   for (const f of textFields) if (f in b) patch[f] = b[f] || null;
+  if (typeof patch.ad_name === "string") patch.ad_name = canonicalAdName(patch.ad_name);
   if ("archetype" in b) patch.archetype = ARCHETYPES.includes(b.archetype) ? b.archetype : null;
   if ("idea_status" in b && IDEA_STATUSES.includes(b.idea_status)) patch.idea_status = b.idea_status;
   if ("is_proven" in b) patch.is_proven = !!b.is_proven;

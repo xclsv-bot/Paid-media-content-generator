@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canonicalAdName } from "@/lib/adname";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getGoldenExamples, findDuplicateHook } from "@/lib/loop/golden";
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
     .insert({
       org_id: b.org_id,
       concept_family_id,
-      ad_name: b.ad_name || null,
+      ad_name: b.ad_name ? canonicalAdName(String(b.ad_name)) : null,
       hook_line: b.hook_line,
       hypothesis: b.hypothesis || null,
       content_summary: b.content_summary || null,

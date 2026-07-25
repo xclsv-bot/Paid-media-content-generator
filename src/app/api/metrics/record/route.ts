@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { canonicalAdName } from "@/lib/adname";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
   if (!isStaff(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as Body;
-  const adName = body.ad_name?.trim();
+  const adName = body.ad_name ? canonicalAdName(body.ad_name) : undefined;
   if (!adName) return NextResponse.json({ error: "ad_name is required" }, { status: 400 });
   const flightLabel = body.flight_label?.trim() || "default";
   const has = (k: keyof Body) => Object.prototype.hasOwnProperty.call(body, k);
