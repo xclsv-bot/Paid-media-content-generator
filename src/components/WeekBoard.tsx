@@ -87,6 +87,25 @@ export default function WeekBoard({
   const [showAdd, setShowAdd] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [perf, setPerf] = useState<PerfFilter>("all");
+  const [renaming, setRenaming] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
+
+  async function renameCycle() {
+    if (!selected || !labelDraft.trim()) return;
+    setBusy(true);
+    try {
+      const ok = await act("Renaming the cycle", () =>
+        fetch(`/api/cycles/${selected.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: labelDraft.trim() }),
+        }),
+      );
+      if (ok) setRenaming(false);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // new-cycle form defaults: this week
   const today = new Date();
@@ -240,6 +259,28 @@ export default function WeekBoard({
             )}
             {selected.status === "Active" && (
               <button onClick={() => setStatus("Closed")} disabled={busy} className="rounded-lg border border-white/20 px-2 py-1 text-xs hover:bg-white/10">Close</button>
+            )}
+            {renaming ? (
+              <span className="flex items-center gap-1.5">
+                <input
+                  value={labelDraft}
+                  onChange={(e) => setLabelDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") renameCycle(); if (e.key === "Escape") setRenaming(false); }}
+                  autoFocus
+                  aria-label="New cycle name"
+                  className="w-44 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs"
+                />
+                <button onClick={renameCycle} disabled={busy || !labelDraft.trim()} className="rounded-lg bg-emerald-400 px-2 py-1 text-xs font-semibold text-black hover:bg-emerald-300 disabled:opacity-40">Save</button>
+                <button onClick={() => setRenaming(false)} disabled={busy} className="text-xs text-white/40 hover:text-white">Cancel</button>
+              </span>
+            ) : (
+              <button
+                onClick={() => { setLabelDraft(selected.label); setRenaming(true); }}
+                disabled={busy}
+                className="rounded-lg border border-white/20 px-2 py-1 text-xs hover:bg-white/10"
+              >
+                Rename
+              </button>
             )}
           </>
         )}
