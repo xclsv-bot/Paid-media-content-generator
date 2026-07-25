@@ -19,6 +19,7 @@ export default function ReportImporter({ orgId }: { orgId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState(`Week of ${mostRecentMonday()}`);
+  const [labelEdit, setLabelEdit] = useState(false);
   const [mode, setMode] = useState<"photo" | "paste">("photo");
   const [text, setText] = useState("");
   const [extracted, setExtracted] = useState<{ rows: ReportRow[]; warnings: string[] } | null>(null);
@@ -169,15 +170,33 @@ export default function ReportImporter({ orgId }: { orgId: string }) {
         ))}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <label className="text-xs uppercase tracking-wide text-white/45" htmlFor="flight-label">Flight label</label>
-        <input
-          id="flight-label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          className="rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-sm text-white/90 focus:border-emerald-400/50 focus:outline-none"
-        />
-        <span className="text-xs text-white/35">used for rows without their own week column</span>
+      {/* The label is bookkeeping only — it keeps successive imports of the
+          same ad as separate history rows. Weekly grouping comes from the
+          This Week cycles (via ad name), never from this label. */}
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-white/40">
+        <span>
+          Metrics connect to videos by ad name and pool into your This Week cycles automatically. Saved under the history label
+        </span>
+        {labelEdit ? (
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onBlur={() => setLabelEdit(false)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setLabelEdit(false); }}
+            autoFocus
+            aria-label="History label for this import"
+            className="rounded border border-white/10 bg-black/30 px-2 py-0.5 text-xs text-white/80 focus:border-emerald-400/50 focus:outline-none"
+          />
+        ) : (
+          <button
+            onClick={() => setLabelEdit(true)}
+            className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-white/60 hover:bg-white/10"
+            title="Only edit if you're backfilling an older report — e.g. set it to that report's week"
+          >
+            {label} ✎
+          </button>
+        )}
+        <span>— edit only when backfilling an older report.</span>
       </div>
 
       {mode === "paste" ? (
