@@ -16,21 +16,21 @@
 -- ---- fixtures: one ad name, three flights written at different times ----
 -- AD_X: an older dated report GRADUATE, a newer null-flight user KILL, and a
 -- still-newer 'auto' row (which must NOT count as an override).
-insert into public.creative_metrics (ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
-  ('OVR_AD_X', 'Week of Jul 1',  '2026-07-01', 'GRADUATE',     'report', '2026-07-01T00:00:00Z'),
-  ('OVR_AD_X', 'default',         null,         'KILL',         'user',   '2026-07-08T00:00:00Z'),
-  ('OVR_AD_X', 'Week of Jul 13', '2026-07-13', 'KEEP_TESTING', 'auto',   '2026-07-13T00:00:00Z');
+insert into public.creative_metrics (org_id, ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'Week of Jul 1',  '2026-07-01', 'GRADUATE',     'report', '2026-07-01T00:00:00Z'),
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'default',         null,         'KILL',         'user',   '2026-07-08T00:00:00Z'),
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'Week of Jul 13', '2026-07-13', 'KEEP_TESTING', 'auto',   '2026-07-13T00:00:00Z');
 -- AD_Y: only an 'auto' row — must yield no override at all.
-insert into public.creative_metrics (ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
-  ('OVR_AD_Y', 'Week of Jul 1', '2026-07-01', 'GRADUATE', 'auto', '2026-07-01T00:00:00Z');
+insert into public.creative_metrics (org_id, ad_name, flight_label, flight_start, verdict, verdict_source, updated_at) values
+  ('99999999-9999-9999-9999-999999999992', 'OVR_AD_Y', 'Week of Jul 1', '2026-07-01', 'GRADUATE', 'auto', '2026-07-01T00:00:00Z');
 
 -- The exact override-map query refreshAll issues (.in + .not + two .order calls).
-create or replace function pg_temp.override_for(p_ad text)
+create or replace function pg_temp.override_for(p_org uuid, p_ad text)
 returns text language sql as $$
   select verdict
   from public.creative_metrics
   where verdict_source in ('user', 'report') and verdict is not null
-    and ad_name = p_ad
+    and org_id = p_org and ad_name = p_ad
   order by updated_at desc, flight_start desc nulls last
   limit 1;
 $$;
@@ -40,14 +40,14 @@ declare v text;
 begin
   -- 1) The newer null-flight user KILL beats the older dated report GRADUATE,
   --    and the still-newer 'auto' row is excluded entirely.
-  v := pg_temp.override_for('OVR_AD_X');
+  v := pg_temp.override_for('99999999-9999-9999-9999-999999999992', 'OVR_AD_X');
   if v is distinct from 'KILL' then
     raise exception 'FAIL: expected KILL override for OVR_AD_X, got %', coalesce(v, '<none>');
   end if;
   raise notice 'ok - newest human verdict wins over older dated report; auto excluded';
 
   -- 2) An ad whose only row is 'auto' produces no override (gates decide).
-  v := pg_temp.override_for('OVR_AD_Y');
+  v := pg_temp.override_for('99999999-9999-9999-9999-999999999992', 'OVR_AD_Y');
   if v is not null then
     raise exception 'FAIL: expected no override for auto-only OVR_AD_Y, got %', v;
   end if;
@@ -55,4 +55,4 @@ begin
 end $$;
 
 -- cleanup so re-runs and later suites see a clean table
-delete from public.creative_metrics where ad_name in ('OVR_AD_X', 'OVR_AD_Y');
+delete from public.creative_metrics where ad_name in ('99999999-9999-9999-9999-999999999992', 'OVR_AD_X', 'OVR_AD_Y');

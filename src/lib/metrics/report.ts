@@ -3,7 +3,11 @@
 // join key to concepts, so the parser's job is to be forgiving about column
 // naming/format while never inventing an ad name.
 
-export type ReportVerdict = "GRADUATE" | "KEEP_TESTING" | "KILL";
+import { VERDICTS, type Verdict } from "@/lib/metrics/verdict";
+
+// The report's verdict vocabulary IS the app's (src/lib/metrics/verdict.ts) —
+// one home, so the sheet parser and the loop can't drift apart.
+export type ReportVerdict = Verdict;
 
 export type ReportRow = {
   ad_name: string;
@@ -47,7 +51,7 @@ const HEADER_ALIASES: Record<string, Field> = {
 };
 
 const RATIO_FIELDS = new Set<Field>(["ctr", "icvr", "scvr"]);
-export const REPORT_VERDICTS: ReadonlySet<string> = new Set(["GRADUATE", "KEEP_TESTING", "KILL"]);
+export const REPORT_VERDICTS: ReadonlySet<string> = new Set(VERDICTS);
 export const NUMBER_FIELDS = new Set<Field>([
   "spend", "conversions", "cpa", "ctr", "bau_cpa", "cpm", "cpi", "cps", "icvr", "scvr", "aov", "roas",
 ]);
@@ -91,11 +95,12 @@ function parseNumber(raw: string, field: Field): number | null {
   return n;
 }
 
-function parseVerdict(raw: string): ReportVerdict | null {
+export function parseVerdict(raw: string): ReportVerdict | null {
   const v = raw.toUpperCase().replace(/[^A-Z]+/g, "_").replace(/^_|_$/g, "");
-  if (v.startsWith("GRAD")) return "GRADUATE";
+  if (v.startsWith("GRAD") || v.startsWith("PROMOTE")) return "GRADUATE";
+  if (v.startsWith("ITER")) return "ITERATE"; // 1.5–2x BAU: new hook/edit, don't promote as-is
   if (v.startsWith("KEEP")) return "KEEP_TESTING";
-  if (v.startsWith("KILL")) return "KILL";
+  if (v.startsWith("KILL") || v.startsWith("STOP")) return "KILL"; // report says STOP_TEST
   return null;
 }
 

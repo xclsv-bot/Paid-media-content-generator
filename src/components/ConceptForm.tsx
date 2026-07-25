@@ -29,7 +29,8 @@ const EMPTY: ConceptFields = {
 
 // The naming convention's controlled vocab (from the client's ad taxonomy).
 const CONV_FORMATS = ["Video", "Short Video"];
-const CONV_TALENT = ["NoFace", "Face"];
+const CONV_TALENT = ["No Face", "Face"];
+const CONV_DURATIONS = ["15s", "30s", "60s"];
 const CONV_THEMES = ["Information", "Winning", "Process", "Product", "Community"];
 
 const field = "w-full rounded-[10px] border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/90 outline-none focus:border-emerald-400/50";
@@ -63,12 +64,13 @@ export default function ConceptForm({
     format: CONV_FORMATS[0],
     talent: CONV_TALENT[0],
     theme: CONV_THEMES[0],
+    duration: CONV_DURATIONS[0],
     date: todayToken(),
   });
   const setBuild = (k: keyof typeof b) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setB({ ...b, [k]: e.target.value });
   function buildAdName() {
-    setF((prev) => ({ ...prev, ad_name: composeAdName({ sport: b.sport, format: b.format, talent: b.talent, theme: b.theme, date: b.date }) }));
+    setF((prev) => ({ ...prev, ad_name: composeAdName({ sport: b.sport, format: b.format, talent: b.talent, theme: b.theme, duration: b.duration, date: b.date }) }));
   }
 
   async function submit() {
@@ -121,7 +123,7 @@ export default function ConceptForm({
           </button>
         </div>
         <input className={`${field} font-mono text-[12.5px]`} value={f.ad_name} onChange={set("ad_name")}
-          placeholder="XCLSV _ XCLSV _ MLB _ Video _ NoFace _ Information _ 6.25.26" />
+          placeholder="XCLSV _ XCLSV _ MLB _ Video _ No Face _ Information _ 15s _ 06.25.26" />
         {showBuilder && (
           <div className="rounded-[10px] border border-white/10 bg-white/[0.02] p-2.5">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -129,6 +131,7 @@ export default function ConceptForm({
               <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Format</span><select className={miniField} value={b.format} onChange={setBuild("format")}>{CONV_FORMATS.map((x) => <option key={x}>{x}</option>)}</select></label>
               <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Talent</span><select className={miniField} value={b.talent} onChange={setBuild("talent")}>{CONV_TALENT.map((x) => <option key={x}>{x}</option>)}</select></label>
               <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Theme</span><select className={miniField} value={b.theme} onChange={setBuild("theme")}>{CONV_THEMES.map((x) => <option key={x}>{x}</option>)}</select></label>
+              <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Duration</span><select className={miniField} value={b.duration} onChange={setBuild("duration")}>{CONV_DURATIONS.map((x) => <option key={x}>{x}</option>)}</select></label>
               <label className="flex flex-col gap-1"><span className="font-mono text-[9px] uppercase text-white/40">Date</span><input className={miniField} value={b.date} onChange={setBuild("date")} placeholder="6.25.26" /></label>
             </div>
             <button type="button" onClick={buildAdName} className="mt-2 w-fit rounded-lg bg-violet-500/90 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-violet-500">

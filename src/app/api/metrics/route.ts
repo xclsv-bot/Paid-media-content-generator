@@ -10,12 +10,13 @@ import { refreshAll } from "@/lib/loop/refresh";
 export const maxDuration = 120;
 const MAX_ROWS = 500;
 
-// POST /api/metrics  { rows: ReportRow[] }
+// POST /api/metrics  { rows: ReportRow[], org_id }
 // Bulk-ingest the team's weekly report; rows upsert into creative_metrics keyed
-// on (ad_name, flight_label), then the loop's example stores rebuild ONCE so a
-// single import lights up the winners cache / golden set / bad-example store —
-// not next-day. Responds with which ad names matched a concept (an unmatched
-// name is almost always a naming-convention typo) plus the refresh result.
+// on (org_id, ad_name, flight_label), then the loop's example stores rebuild
+// ONCE so a single import lights up the winners cache / golden set /
+// bad-example store — not next-day. Responds with which ad names matched a
+// concept (an unmatched name is almost always a naming-convention mismatch)
+// plus the refresh result.
 //
 // A row's verdict, when present, is the paid team's call (verdict_source
 // 'report'); a blank verdict is derived from the row's numbers, unless the row
@@ -31,8 +32,12 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null);
   const rows = body?.rows;
+  const orgId = body?.org_id;
   if (!Array.isArray(rows) || rows.length === 0) {
     return NextResponse.json({ error: "rows is required" }, { status: 400 });
+  }
+  if (!orgId || typeof orgId !== "string") {
+    return NextResponse.json({ error: "org_id is required" }, { status: 400 });
   }
   if (rows.length > MAX_ROWS) {
     return NextResponse.json({ error: `Too many rows (max ${MAX_ROWS} per import).` }, { status: 400 });
@@ -47,6 +52,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Invalid verdict "${r.verdict}".` }, { status: 400 });
     }
     const row: Record<string, unknown> = {
+      org_id: orgId,
       ad_name: r.ad_name.trim(),
       flight_label: typeof r.flight_label === "string" && r.flight_label.trim() ? r.flight_label.trim() : "default",
       flight_start: typeof r.flight_start === "string" ? r.flight_start : null,
@@ -62,14 +68,24 @@ export async function POST(req: Request) {
 
   // Dedupe on the conflict key (last wins) — Postgres refuses an upsert batch
   // that touches the same (ad_name, flight_label) twice. The UI parser already
-  // dedupes; this covers direct API callers.
+  // dedupes; this covers direct API callers. org_id is constant per request.
   const byKey = new Map<string, Record<string, unknown>>();
   for (const row of clean) byKey.set(`${row.ad_name}\u0000${row.flight_label}`, row);
   const deduped = [...byKey.values()];
 
-  // Staff session already authorized via RLS, but the agent path has no session,
+  // Staff session already authorized above, but the agent path has no session,
   // and refreshAll needs the service role regardless — do it all on admin.
   const admin = createAdminClient();
+  // The org must be a real client org — a typo'd id would silently orphan the
+  // whole import behind a foreign key that happens to exist.
+  const { data: org } = await admin
+    .from("organizations")
+    .select("id, is_agency")
+    .eq("id", orgId)
+    .single();
+  if (!org || org.is_agency) {
+    return NextResponse.json({ error: "org_id must be a client organization" }, { status: 400 });
+  }
 
   // Existing verdicts for the batch keys, so a blank cell preserves a prior
   // human/report call instead of silently deriving over it.
@@ -78,10 +94,12 @@ export async function POST(req: Request) {
   const { data: existingRows } = await admin
     .from("creative_metrics")
     .select("ad_name, flight_label, verdict, verdict_source")
+    .eq("org_id", orgId)
     .in("ad_name", names);
   const existing = new Map<string, { verdict: string | null; verdict_source: string | null }>();
   for (const r of existingRows ?? []) existing.set(`${r.ad_name}\u0000${r.flight_label}`, r);
 
+  const stampedAt = new Date().toISOString();
   for (const row of deduped) {
     let verdict: Verdict | null;
     let verdictSource: VerdictSource;
@@ -99,9 +117,9 @@ export async function POST(req: Request) {
           {
             spend: (row.spend as number | null) ?? 0,
             results: (row.conversions as number | null) ?? 0,
-            cpt: (row.cpa as number | null) ?? null,
-            ctr: (row.ctr as number | null) ?? null,
-            firstDate: (row.flight_start as string | null) ?? null,
+            cpt: row.cpa as number | null,
+            ctr: row.ctr as number | null,
+            firstDate: row.flight_start as string | null,
           },
           target,
         );
@@ -110,20 +128,24 @@ export async function POST(req: Request) {
     }
     row.verdict = verdict;
     row.verdict_source = verdictSource;
-    row.updated_at = new Date().toISOString();
+    row.updated_at = stampedAt;
   }
 
   const { error } = await admin
     .from("creative_metrics")
-    .upsert(deduped, { onConflict: "ad_name,flight_label" });
+    .upsert(deduped, { onConflict: "org_id,ad_name,flight_label" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Which of these names actually join to a concept?
-  const { data: matched } = await admin.from("creatives").select("ad_name").in("ad_name", names);
+  const { data: matched } = await admin
+    .from("creatives")
+    .select("ad_name")
+    .eq("org_id", orgId)
+    .in("ad_name", names);
   const matchedSet = new Set((matched ?? []).map((m) => m.ad_name));
   const unmatched = names.filter((n) => !matchedSet.has(n));
 
-  // Rebuild the loop's stores now that the metrics changed.
+  // One refresh per import — the batch is in, light up the stores.
   const refresh = await refreshAll(admin);
 
   return NextResponse.json({

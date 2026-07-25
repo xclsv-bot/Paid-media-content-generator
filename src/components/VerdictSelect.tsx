@@ -10,12 +10,14 @@ import { VERDICT_LABEL, VERDICT_PILL, VERDICTS, type Verdict } from "@/lib/metri
 // loop's stores rebuild immediately behind the scenes. Clients see the static
 // pill instead (canEdit=false).
 export default function VerdictSelect({
+  orgId,
   adName,
   flightLabel,
   verdict,
   source,
   canEdit,
 }: {
+  orgId: string;
   adName: string;
   flightLabel: string;
   verdict: Verdict | null;
@@ -43,7 +45,7 @@ export default function VerdictSelect({
       const res = await fetch("/api/metrics/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ad_name: adName, flight_label: flightLabel, verdict: next }),
+        body: JSON.stringify({ org_id: orgId, ad_name: adName, flight_label: flightLabel, verdict: next }),
       });
       if (!res.ok) throw new Error();
       router.refresh();

@@ -72,10 +72,12 @@ describe("parseVerdictLabel", () => {
   it("maps report language to canonical verdicts", () => {
     expect(parseVerdictLabel("Graduated")).toBe("GRADUATE");
     expect(parseVerdictLabel("GRADUATE")).toBe("GRADUATE");
+    expect(parseVerdictLabel("Iterate")).toBe("ITERATE"); // first-class, never collapsed
     expect(parseVerdictLabel("keep testing")).toBe("KEEP_TESTING");
     expect(parseVerdictLabel("Keep-Testing")).toBe("KEEP_TESTING");
     expect(parseVerdictLabel("Killed")).toBe("KILL");
     expect(parseVerdictLabel("kill")).toBe("KILL");
+    expect(parseVerdictLabel("STOP_TEST")).toBe("KILL"); // the report's own spelling
   });
 
   it("returns null for unknown or empty strings", () => {
@@ -88,6 +90,7 @@ describe("parseVerdictLabel", () => {
 describe("isVerdict", () => {
   it("accepts only canonical values", () => {
     expect(isVerdict("GRADUATE")).toBe(true);
+    expect(isVerdict("ITERATE")).toBe(true);
     expect(isVerdict("Graduated")).toBe(false);
     expect(isVerdict(null)).toBe(false);
   });

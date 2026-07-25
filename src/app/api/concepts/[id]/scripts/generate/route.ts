@@ -56,14 +56,12 @@ export async function POST(
   // scripts (golden set), proven performers (winners cache), and the patterns
   // to avoid (bad-example store) — so both "winner" notions converge on one
   // source. The report's GRADUATE list is kept only as a cold-start fallback
-  // for a brand-new org whose stores haven't populated yet, scoped to THIS
-  // client's ad names (creative_metrics has no org column).
+  // for a brand-new org whose stores haven't populated yet.
   const orgId = (c as { org_id?: string }).org_id ?? "";
-  const [golden, cache, bad, { data: orgNames }] = await Promise.all([
+  const [golden, cache, bad] = await Promise.all([
     getGoldenExamples(supabase, orgId, 5),
     getCachedWinners(supabase, orgId, 5),
     getBadExamples(supabase, orgId, 5),
-    supabase.from("creatives").select("ad_name").eq("org_id", orgId).not("ad_name", "is", null),
   ]);
 
   const goldenBlock = golden.examples.length
@@ -79,16 +77,16 @@ export async function POST(
     : "";
   const grounded = [goldenBlock, winnersBlock, avoidBlock].filter(Boolean).join("\n\n");
 
-  // Cold-start fallback: proven graduates for THIS org only (filtered through
-  // the org's ad names, since creative_metrics isn't org-scoped).
-  const nameSet = new Set((orgNames ?? []).map((n) => n.ad_name as string));
+  // Cold-start fallback: proven graduates for THIS org only, via the org
+  // stamp on the report rows (0026).
   const { data: graduates } = await supabase
     .from("creative_metrics")
     .select("ad_name, cpa")
+    .eq("org_id", orgId)
     .eq("verdict", "GRADUATE")
     .order("cpa", { ascending: true })
-    .limit(50);
-  const gradWinners = (graduates ?? []).filter((w) => nameSet.has(w.ad_name)).slice(0, 5);
+    .limit(5);
+  const gradWinners = graduates ?? [];
   const winningText =
     grounded ||
     (gradWinners

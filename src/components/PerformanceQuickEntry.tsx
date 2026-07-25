@@ -13,7 +13,7 @@ import { VERDICT_LABEL, VERDICTS } from "@/lib/metrics/verdict";
 // Posts to /api/metrics/record keyed by the creative's ad_name. Verdict defaults to
 // "Auto" — derived from the numbers by the same gates the loop uses — so staff
 // only pick a bucket when they want to override the paid team's call.
-export default function PerformanceQuickEntry({ adName }: { adName: string }) {
+export default function PerformanceQuickEntry({ orgId, adName }: { orgId: string; adName: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,6 +39,7 @@ export default function PerformanceQuickEntry({ adName }: { adName: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          org_id: orgId,
           ad_name: adName,
           flight_label: form.flight_label.trim() || undefined,
           spend: form.spend.trim() === "" ? null : Number(form.spend),

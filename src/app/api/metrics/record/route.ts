@@ -15,8 +15,9 @@ export const maxDuration = 60;
 // the stores that ground Ideate + script generation update behind the scenes.
 // No dedicated curation screen — the entry IS the curation.
 //
-// creative_metrics is keyed (ad_name, flight_label); creative_performance is a
-// view over it joined to creatives by ad_name, so this single write feeds both
+// creative_metrics is keyed (org_id, ad_name, flight_label) since 0026;
+// creative_performance is a view over it joined to creatives by ad_name, so
+// this single write feeds both
 // the /performance report and refreshAll(). Staff only (route gate + cm_staff_all
 // RLS on the user-scoped client); the refresh runs on the service-role client.
 //
@@ -32,6 +33,7 @@ export const maxDuration = 60;
 // so a metrics-only update never silently clobbers a human/report decision.
 
 type Body = {
+  org_id?: string;
   ad_name?: string;
   flight_label?: string;
   flight_start?: string | null;
@@ -57,16 +59,31 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Body;
   const adName = body.ad_name?.trim();
   if (!adName) return NextResponse.json({ error: "ad_name is required" }, { status: 400 });
+  const orgId = body.org_id;
+  if (!orgId || typeof orgId !== "string") {
+    return NextResponse.json({ error: "org_id is required" }, { status: 400 });
+  }
   const flightLabel = body.flight_label?.trim() || "default";
   const has = (k: keyof Body) => Object.prototype.hasOwnProperty.call(body, k);
 
   const supabase = await createClient();
+  // Rows are org-stamped (0026) — a typo'd org would orphan the entry, and ad
+  // names aren't org-namespaced, so the org is part of the row's identity.
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("id, is_agency")
+    .eq("id", orgId)
+    .single();
+  if (!org || org.is_agency) {
+    return NextResponse.json({ error: "org_id must be a client organization" }, { status: 400 });
+  }
 
-  // The existing row for this (ad_name, flight_label). Omitted fields fall back
-  // to it, so a partial patch preserves everything it doesn't mention.
+  // The existing row for this (org, ad_name, flight_label). Omitted fields fall
+  // back to it, so a partial patch preserves everything it doesn't mention.
   const { data: existing } = await supabase
     .from("creative_metrics")
     .select("flight_start, spend, conversions, cpa, ctr, bau_cpa, reason, verdict, verdict_source")
+    .eq("org_id", orgId)
     .eq("ad_name", adName)
     .eq("flight_label", flightLabel)
     .maybeSingle();
@@ -103,17 +120,29 @@ export async function POST(req: Request) {
       verdict = existing!.verdict as Verdict;
       verdictSource = existing!.verdict_source as VerdictSource;
     } else {
+      // Derive against the creative's OWN target when the ad name joins a
+      // concept (the quick entry lives on the creative page, where a custom
+      // cpt_target_cents is common); contract default otherwise.
+      const { data: concept } = await supabase
+        .from("creatives")
+        .select("cpt_target_cents")
+        .eq("org_id", orgId)
+        .eq("ad_name", adName)
+        .not("cpt_target_cents", "is", null)
+        .limit(1)
+        .maybeSingle();
       verdict = deriveVerdict(
         { spend: spend ?? 0, results: conversions ?? 0, cpt: cpa, ctr, firstDate: flightStart },
-        defaultTargetCents(),
+        concept?.cpt_target_cents ?? defaultTargetCents(),
       );
       verdictSource = "auto";
     }
   } else {
-    return NextResponse.json({ error: "verdict must be GRADUATE, KEEP_TESTING, KILL, or AUTO" }, { status: 400 });
+    return NextResponse.json({ error: "verdict must be GRADUATE, ITERATE, KEEP_TESTING, KILL, or AUTO" }, { status: 400 });
   }
 
   const row = {
+    org_id: orgId,
     ad_name: adName,
     flight_label: flightLabel,
     flight_start: flightStart,
@@ -130,7 +159,7 @@ export async function POST(req: Request) {
 
   const { data: metric, error } = await supabase
     .from("creative_metrics")
-    .upsert(row, { onConflict: "ad_name,flight_label" })
+    .upsert(row, { onConflict: "org_id,ad_name,flight_label" })
     .select("ad_name, flight_label, spend, conversions, cpa, ctr, verdict, verdict_source")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

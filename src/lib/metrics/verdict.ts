@@ -20,25 +20,34 @@ import { loserCptMultiplier, loserMinResults } from "@/lib/loop/config";
 // else from performance itself. A human/report verdict is a decision; 'auto' is
 // a hint.
 
-export const VERDICTS = ["GRADUATE", "KEEP_TESTING", "KILL"] as const;
+// ITERATE is the report's "1.5–2x BAU: new hook/edit, don't promote as-is" —
+// a human/report judgement between winning and losing. deriveVerdict never
+// emits it (no gate can tell "iterate" from "keep testing"); the loop treats
+// an ITERATE override as hold, exactly like KEEP_TESTING.
+export const VERDICTS = ["GRADUATE", "ITERATE", "KEEP_TESTING", "KILL"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
 // Who decided: derived by the app, set by staff in the UI, or arrived with the
 // paid team's report. Auto never overwrites user/report (see /api/metrics).
 export type VerdictSource = "auto" | "user" | "report";
 
+// Labels/colors match the shipped Performance page (the client's own report
+// says STOP_TEST, rendered "Stopped").
 export const VERDICT_LABEL: Record<Verdict, string> = {
   GRADUATE: "Graduated",
+  ITERATE: "Iterate",
   KEEP_TESTING: "Keep testing",
-  KILL: "Killed",
+  KILL: "Stopped",
 };
 export const VERDICT_PILL: Record<Verdict, string> = {
   GRADUATE: "bg-emerald-500/15 text-emerald-300",
-  KEEP_TESTING: "bg-amber-500/15 text-amber-300",
+  ITERATE: "bg-orange-500/15 text-orange-300",
+  KEEP_TESTING: "bg-sky-500/15 text-sky-300",
   KILL: "bg-red-500/15 text-red-300",
 };
 export const VERDICT_BAR: Record<Verdict, string> = {
   GRADUATE: "bg-emerald-400/80",
+  ITERATE: "bg-orange-400/80",
   KEEP_TESTING: "bg-amber-400/80",
   KILL: "bg-red-400/70",
 };
@@ -47,14 +56,16 @@ export function isVerdict(v: unknown): v is Verdict {
   return typeof v === "string" && (VERDICTS as readonly string[]).includes(v);
 }
 
-// Report sheets say "Graduated" / "keep testing" / "Killed" (or the raw enum);
-// map whatever a sheet says to the canonical value, null when unrecognizable.
+// Report sheets say "Graduated" / "keep testing" / "STOP_TEST" (or the raw
+// enum); map whatever a sheet says to the canonical value, null when
+// unrecognizable.
 export function parseVerdictLabel(raw: string | null | undefined): Verdict | null {
   if (!raw) return null;
   const v = raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
-  if (v === "GRADUATE" || v === "GRADUATED" || v === "GRAD" || v === "WINNER") return "GRADUATE";
-  if (v === "KEEP_TESTING" || v === "KEEP" || v === "TESTING" || v === "ITERATE") return "KEEP_TESTING";
-  if (v === "KILL" || v === "KILLED" || v === "STOP" || v === "STOPPED" || v === "LOSER") return "KILL";
+  if (v === "GRADUATE" || v === "GRADUATED" || v === "GRAD" || v === "WINNER" || v === "PROMOTE") return "GRADUATE";
+  if (v === "ITERATE" || v === "ITERATING" || v === "ITER") return "ITERATE";
+  if (v === "KEEP_TESTING" || v === "KEEP" || v === "TESTING") return "KEEP_TESTING";
+  if (v === "KILL" || v === "KILLED" || v === "STOP" || v === "STOPPED" || v === "STOP_TEST" || v === "LOSER") return "KILL";
   return null;
 }
 

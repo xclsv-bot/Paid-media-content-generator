@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0024_verdicts_and_transcripts.sql — one verdict vocabulary, honored by the loop.
+-- 0028_verdicts_and_transcripts.sql — one verdict vocabulary, honored by the loop.
 -- ============================================================================
 -- Until now creative_metrics.verdict (GRADUATE|KEEP_TESTING|KILL) only ever
 -- arrived with imported report rows — nothing computed it, and the loop's
@@ -50,7 +50,9 @@ update public.creative_metrics set verdict = case upper(btrim(verdict))
   when 'KEEP-TESTING' then 'KEEP_TESTING'
   when 'KEEP'         then 'KEEP_TESTING'
   when 'TESTING'      then 'KEEP_TESTING'
-  when 'ITERATE'      then 'KEEP_TESTING'
+  when 'ITERATE'      then 'ITERATE'
+  when 'ITERATING'    then 'ITERATE'
+  when 'ITER'         then 'ITERATE'
   when 'KILL'         then 'KILL'
   when 'KILLED'       then 'KILL'
   when 'STOP'         then 'KILL'
@@ -61,7 +63,7 @@ end
 where verdict is not null;
 alter table public.creative_metrics
   add constraint cm_verdict_values
-  check (verdict is null or verdict in ('GRADUATE', 'KEEP_TESTING', 'KILL'));
+  check (verdict is null or verdict in ('GRADUATE', 'ITERATE', 'KEEP_TESTING', 'KILL'));
 
 -- ---------- bad_examples: the manual-kill kind ----------
 alter table public.bad_examples drop constraint bad_examples_kind_check;

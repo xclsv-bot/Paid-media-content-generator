@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createSignedStream } from "@/lib/storage";
 import VideoUploader from "@/components/VideoUploader";
-import VideoAssetCard from "@/components/VideoAssetCard";
+import VideoGallery from "@/components/VideoGallery";
 import DeliverableStatusSelect from "@/components/DeliverableStatusSelect";
 import { fmtDay } from "@/lib/client/format";
 
@@ -45,11 +45,11 @@ export default async function QueuePage() {
 
   // Existing videos per concept (for playback), signed inline.
   const conceptIds = rows.map((r) => r.concept_id);
-  const videosByConcept = new Map<string, { id: string; fileName: string; versionLabel: string; streamUrl: string | null }[]>();
+  const videosByConcept = new Map<string, { id: string; fileName: string; versionLabel: string; streamUrl: string | null; canDelete: boolean }[]>();
   if (conceptIds.length) {
     const { data: assets } = await supabase
       .from("video_assets")
-      .select("id, creative_id, file_name, version_label, storage_path, uploaded_at")
+      .select("id, creative_id, file_name, version_label, storage_path, uploaded_at, uploaded_by")
       .in("creative_id", conceptIds)
       .order("uploaded_at", { ascending: false });
     for (const a of assets ?? []) {
@@ -58,6 +58,9 @@ export default async function QueuePage() {
         id: a.id,
         fileName: a.file_name,
         versionLabel: a.version_label,
+        // Accidental upload? The uploader can remove their own cut (staff can
+        // remove any); the API + RLS re-check, incl. the published guard.
+        canDelete: isStaff(user) || a.uploaded_by === user.id,
         streamUrl: await createSignedStream(a.storage_path).catch(() => null),
       });
       videosByConcept.set(a.creative_id, list);
@@ -110,10 +113,8 @@ export default async function QueuePage() {
               </div>
 
               {videos.length > 0 && (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {videos.map((v) => (
-                    <VideoAssetCard key={v.id} id={v.id} fileName={v.fileName} versionLabel={v.versionLabel} streamUrl={v.streamUrl} />
-                  ))}
+                <div className="mt-4">
+                  <VideoGallery videos={videos} />
                 </div>
               )}
 

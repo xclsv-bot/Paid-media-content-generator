@@ -11,6 +11,8 @@
  * Env:
  *   APP_URL        base URL of the running app (default http://localhost:3000)
  *   AGENT_API_KEY  bearer token /api/metrics accepts (see src/lib/agent-auth.ts)
+ *   ORG_ID         client organization uuid the rows belong to — report rows
+ *                  are org-stamped (0026), so the import must name its tenant
  */
 import { readFile } from "node:fs/promises";
 import { parseReport } from "../src/lib/metrics/report";
@@ -28,6 +30,11 @@ async function main() {
     console.error("AGENT_API_KEY is required (the import route rejects unauthenticated agents).");
     process.exit(1);
   }
+  const orgId = process.env.ORG_ID;
+  if (!orgId) {
+    console.error("ORG_ID is required (the client org uuid the report belongs to).");
+    process.exit(1);
+  }
 
   const text = await readFile(file, "utf8");
   const { rows, warnings } = parseReport(text, flightLabel);
@@ -40,7 +47,7 @@ async function main() {
   const res = await fetch(`${base}/api/metrics`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, org_id: orgId }),
   });
   const body = (await res.json().catch(() => ({}))) as {
     imported?: number;

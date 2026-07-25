@@ -3,7 +3,7 @@
 //
 // The client's Meta ad/file naming convention is a ` _ `-delimited taxonomy:
 //   Brand _ Advertiser _ Sport _ Format _ Talent _ Theme _ Date
-//   e.g. "XCLSV _ XCLSV _ MLB _ Video _ NoFace _ Information _ 6.25.26"
+//   e.g. "XCLSV _ XCLSV _ MLB _ Video _ No Face _ Information _ 15s _ 06.25.26"
 // `parseNamingConvention()` decodes it into facets; `categorize()` layers those
 // over the structured DB fields (name wins where present). This is the ONLY
 // place that needs to change if the convention evolves.
@@ -93,11 +93,15 @@ export function facetValues(items: Facets[], key: FacetKey): string[] {
 // ---------------------------------------------------------------------------
 // Encoder — the single source of truth for building a convention ad name.
 // The name is the join key between concepts and the weekly report, so every
-// surface that mints one (ConceptForm, Ideate) MUST go through this. Date
-// token matches the slate's existing names: M.D.YY (e.g. "7.8.26").
+// surface that mints one (ConceptForm, Ideate) MUST go through this. Matches
+// the trafficked names on the live report, e.g.
+//   "XCLSV _ XCLSV _ WNBA _ Video _ No Face _ Information _ 15s _ 07.03.26"
+// (talent "No Face" with a space, a duration slot, zero-padded M.D.YY date).
 // ---------------------------------------------------------------------------
 export function adNameDateToken(d: Date = new Date()): string {
-  return `${d.getMonth() + 1}.${d.getDate()}.${String(d.getFullYear()).slice(2)}`;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}.${dd}.${String(d.getFullYear()).slice(2)}`;
 }
 
 export function composeAdName(parts: {
@@ -105,6 +109,7 @@ export function composeAdName(parts: {
   format?: string | null;
   talent?: string | null;
   theme?: string | null;
+  duration?: string | null;
   date?: string | null;
 }): string {
   return [
@@ -112,8 +117,9 @@ export function composeAdName(parts: {
     "XCLSV",
     (parts.sport ?? "").trim() || "All",
     (parts.format ?? "").trim() || "Video",
-    (parts.talent ?? "").trim() || "NoFace",
+    (parts.talent ?? "").trim() || "No Face",
     (parts.theme ?? "").trim() || "Information",
+    (parts.duration ?? "").trim() || "15s",
     (parts.date ?? "").trim() || adNameDateToken(),
   ].join(" _ ");
 }
