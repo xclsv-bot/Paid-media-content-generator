@@ -97,13 +97,34 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Optionally schedule the new concept straight into the current week as a
-  // deliverable (the "Add to This Week" action). Target the Active cycle if
-  // there is one; otherwise the most recent OPEN (non-Closed) cycle — i.e. the
-  // week you're building even before it's activated. Only a truly empty/closed
-  // slate falls back to Ideas-only.
+  // Optionally attach a watch link (e.g. the Drive file the concept was
+  // backfilled from) as a reference in the same round-trip.
+  if (typeof b.reference_url === "string" && /^https?:\/\//i.test(b.reference_url.trim())) {
+    await supabase
+      .from("concept_references")
+      .insert({ concept_id: data.id, kind: "link", url: b.reference_url.trim(), label: "Watch — Drive" });
+  }
+
+  // Optionally schedule the new concept straight into a week. cycle_id targets
+  // a SPECIFIC cycle (the This Week quick-add); add_to_cycle keeps the older
+  // behavior — the Active cycle if there is one, otherwise the most recent
+  // OPEN (non-Closed) cycle. Only a truly empty/closed slate falls back to
+  // Ideas-only.
   let cycle: { id: string; label: string } | null = null;
-  if (b.add_to_cycle) {
+  if (b.cycle_id) {
+    const { data: target } = await supabase
+      .from("cycles")
+      .select("id, label, org_id")
+      .eq("id", b.cycle_id)
+      .maybeSingle();
+    if (!target || target.org_id !== b.org_id) {
+      return NextResponse.json({ id: data.id, cycle: null, error: "That week belongs to a different client — concept created but not scheduled" }, { status: 201 });
+    }
+    const { error: dErr } = await supabase
+      .from("deliverables")
+      .insert({ cycle_id: target.id, concept_id: data.id });
+    if (!dErr) cycle = { id: target.id, label: target.label };
+  } else if (b.add_to_cycle) {
     const { data: active } = await supabase
       .from("cycles")
       .select("id, label")

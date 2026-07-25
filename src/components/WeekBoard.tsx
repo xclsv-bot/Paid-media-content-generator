@@ -55,6 +55,24 @@ export type Available = { id: string; sheet_id: string | null; hook_line: string
 export type Organization = { id: string; slug: string; display_name: string };
 
 import { PROD_STATUSES } from "@/lib/deliverables";
+import { parseNamingConvention } from "@/lib/client/categorize";
+
+// Backfill helper: turn a pasted Drive filename into the ad-name convention.
+// Accepts | or _ separators, strips stacked extensions ("....mp4.mp4").
+function normalizeAdName(raw: string): string {
+  return raw
+    .trim()
+    .replace(/(\.(mp4|mov|m4v|webm))+$/i, "")
+    .replace(/\s*\|\s*/g, " _ ")
+    .replace(/\s*_\s*/g, " _ ")
+    .trim();
+}
+// Readable default title: the name minus the leading brand tokens.
+function titleFromAdName(ad: string): string {
+  const parts = ad.split(" _ ").filter(Boolean);
+  const body = parts.slice(2);
+  return (body.length ? body : parts).join(" · ");
+}
 const STATUS_STYLE: Record<string, string> = {
   Assigned: "text-white/60",
   "In production": "text-sky-300",
@@ -89,6 +107,46 @@ export default function WeekBoard({
   const [perf, setPerf] = useState<PerfFilter>("all");
   const [renaming, setRenaming] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
+  const [quickName, setQuickName] = useState("");
+  const [quickLink, setQuickLink] = useState("");
+  const [quickMsg, setQuickMsg] = useState<string | null>(null);
+
+  // Create a concept from a pasted Drive filename and land it in this week.
+  async function quickCreate() {
+    if (!selected || busy) return;
+    const ad = normalizeAdName(quickName);
+    if (!ad) return;
+    const parsed = parseNamingConvention(ad);
+    setBusy(true);
+    setQuickMsg(null);
+    try {
+      const ok = await act("Creating the concept", () =>
+        fetch("/api/concepts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            org_id: selected.org_id,
+            hook_line: titleFromAdName(ad),
+            ad_name: ad,
+            sport: parsed.sport ?? null,
+            format: parsed.format ?? null,
+            idea_status: "Testing",
+            cycle_id: selected.id,
+            reference_url: quickLink.trim() || undefined,
+            // Backfill titles are mechanical; skip the golden-duplicate gate.
+            allow_duplicate: true,
+          }),
+        }),
+      );
+      if (ok) {
+        setQuickMsg(`Added “${titleFromAdName(ad)}” ✓ — paste the next one`);
+        setQuickName("");
+        setQuickLink("");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function renameCycle() {
     if (!selected || !labelDraft.trim()) return;
@@ -305,8 +363,40 @@ export default function WeekBoard({
 
       {showAdd && (
         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          {/* Quick-create from a Drive filename — for organizing weeks backwards */}
+          <div className="mb-4 border-b border-white/10 pb-4">
+            <h3 className="mb-1 text-sm font-medium">Quick-create from a video name</h3>
+            <p className="mb-2 text-xs text-white/45">
+              Paste the Drive filename (| or _ separators both work). It becomes the ad name — metrics join to it automatically — with a short title derived from it. Drive link optional.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={quickName}
+                onChange={(e) => setQuickName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") quickCreate(); }}
+                placeholder="XCLSV | XCLSV | WNBA | Video | No Face | Winning | 16s | 07.24.26"
+                className={`${sel} min-w-[280px] flex-1 font-mono text-xs`}
+              />
+              <input
+                value={quickLink}
+                onChange={(e) => setQuickLink(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") quickCreate(); }}
+                placeholder="Drive link (optional)"
+                className={`${sel} w-52 text-xs`}
+              />
+              <button
+                onClick={quickCreate}
+                disabled={busy || !quickName.trim()}
+                className="rounded-lg bg-emerald-400 px-3 py-1 text-sm font-semibold text-black hover:bg-emerald-300 disabled:opacity-40"
+              >
+                Create & add
+              </button>
+            </div>
+            {quickMsg && <p className="mt-2 text-xs text-emerald-300">{quickMsg}</p>}
+          </div>
+
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-medium">Add concepts to this cycle</h3>
+            <h3 className="text-sm font-medium">Add existing concepts</h3>
             <button onClick={addPicked} disabled={busy || picked.size === 0} className="rounded-lg bg-emerald-400 px-3 py-1 text-sm font-semibold text-black hover:bg-emerald-300 disabled:opacity-40">
               Add {picked.size || ""}
             </button>
