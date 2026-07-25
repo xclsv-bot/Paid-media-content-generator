@@ -26,7 +26,30 @@ export type Deliverable = {
   due_date: string | null;
   production_status: string;
   has_video: boolean;
+  reported: boolean;
+  cpt: number | null;
+  hit: boolean | null;
 };
+
+type PerfFilter = "all" | "hit" | "miss" | "none";
+const PERF_LABEL: Record<PerfFilter, string> = { all: "All", hit: "Hit", miss: "Miss", none: "No metrics" };
+function matchesPerf(d: Deliverable, f: PerfFilter): boolean {
+  if (f === "all") return true;
+  if (f === "hit") return d.hit === true;
+  if (f === "miss") return d.hit === false;
+  return d.cpt == null;
+}
+// The row's performance one-liner, mirroring the Ideas signal footer.
+function perfLine(d: Deliverable): { label: string; cls: string } | null {
+  if (d.cpt != null) {
+    return {
+      label: `CPT $${d.cpt.toFixed(2)} · ${d.hit ? "Hit" : "Miss"}`,
+      cls: d.hit ? "text-emerald-300" : "text-red-300",
+    };
+  }
+  if (d.reported) return { label: "Reported · no trials yet", cls: "text-amber-300/90" };
+  return null;
+}
 export type Person = { id: string; name: string | null; role: string };
 export type Available = { id: string; sheet_id: string | null; hook_line: string | null; family: string | null };
 export type Organization = { id: string; slug: string; display_name: string };
@@ -63,6 +86,7 @@ export default function WeekBoard({
   const [showNew, setShowNew] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [perf, setPerf] = useState<PerfFilter>("all");
 
   // new-cycle form defaults: this week
   const today = new Date();
@@ -174,6 +198,8 @@ export default function WeekBoard({
   const moveTargets = selected
     ? cycles.filter((c) => c.org_id === selected.org_id && c.id !== selected.id)
     : [];
+  const anyReported = deliverables.some((d) => d.reported);
+  const visible = deliverables.filter((d) => matchesPerf(d, perf));
   const count = deliverables.length;
   const target = selected?.target_count ?? 15;
   const pct = Math.min(100, Math.round((count / target) * 100));
@@ -270,6 +296,29 @@ export default function WeekBoard({
         <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{actionErr}</p>
       )}
 
+      {/* performance filter — appears once any row has reported metrics */}
+      {anyReported && (
+        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          <span className="mr-1 text-xs text-white/40">Performance:</span>
+          {(["all", "hit", "miss", "none"] as PerfFilter[]).map((f) => {
+            const n = f === "all" ? deliverables.length : deliverables.filter((d) => matchesPerf(d, f)).length;
+            return (
+              <button
+                key={f}
+                onClick={() => setPerf(f)}
+                className={`rounded-lg border px-2.5 py-1 text-[12.5px] ${
+                  perf === f
+                    ? "border-emerald-400 bg-emerald-400 font-semibold text-black"
+                    : "border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/10"
+                }`}
+              >
+                {PERF_LABEL[f]} <span className="opacity-60">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* table */}
       <div className="overflow-x-auto rounded-xl border border-white/10">
         <table className="w-full table-fixed text-left text-sm">
@@ -297,7 +346,12 @@ export default function WeekBoard({
             {deliverables.length === 0 && (
               <tr><td colSpan={7} className="px-3 py-6 text-center text-white/40">No concepts in this cycle yet — use “Add concepts”.</td></tr>
             )}
-            {deliverables.map((d) => (
+            {deliverables.length > 0 && visible.length === 0 && (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-white/40">No rows match the “{PERF_LABEL[perf]}” performance filter.</td></tr>
+            )}
+            {visible.map((d) => {
+              const p = perfLine(d);
+              return (
               <tr key={d.id} className="border-t border-white/5 hover:bg-white/5">
                 <td className="px-3 py-2 text-white/50">{d.sheet_id}</td>
                 <td className="px-3 py-2">
@@ -308,7 +362,10 @@ export default function WeekBoard({
                   >
                     {d.hook_line}
                   </Link>
-                  <div className="truncate text-xs text-white/40">{d.family} · {d.hook_angle}</div>
+                  <div className="truncate text-xs text-white/40">
+                    {d.family} · {d.hook_angle}
+                    {p && <span className={`ml-2 ${p.cls}`}>{p.label}</span>}
+                  </div>
                   {d.ad_name && (
                     <div className="mt-0.5 truncate font-mono text-[10.5px] text-white/35" title={d.ad_name}>{d.ad_name}</div>
                   )}
@@ -354,7 +411,8 @@ export default function WeekBoard({
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

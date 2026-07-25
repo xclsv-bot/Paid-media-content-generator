@@ -9,6 +9,7 @@ import WeekBoard, {
   type Organization,
 } from "@/components/WeekBoard";
 import { getFamilySlots, type FamilySlot } from "@/lib/loop/slots";
+import { defaultTargetCents, isHit } from "@/lib/metrics/perf";
 
 const SLOT_CHIP: Record<FamilySlot["status"], string> = {
   Proven: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
@@ -92,19 +93,43 @@ export default async function ThisWeekPage({
       (vids ?? []).forEach((v: { creative_id: string }) => videoSet.add(v.creative_id));
     }
 
-    deliverables = rows.map((r) => ({
-      id: r.id,
-      concept_id: r.concept_id,
-      sheet_id: r.creatives?.sheet_id ?? null,
-      ad_name: r.creatives?.ad_name ?? null,
-      family: famName(r.creatives?.concept_families),
-      hook_line: r.creatives?.hook_line ?? null,
-      hook_angle: r.creatives?.hook_angle ?? null,
-      assignee_id: r.assignee_id,
-      due_date: r.due_date,
-      production_status: r.production_status,
-      has_video: videoSet.has(r.concept_id),
-    }));
+    // Reported performance joins by ad name; the latest row per ad carries
+    // flight-to-date running totals (same read as Ideas/Performance).
+    const { data: metricRows } = await supabase
+      .from("creative_metrics")
+      .select("ad_name, flight_start, created_at, spend, conversions")
+      .eq("org_id", selected.org_id);
+    type MetricLite = { ad_name: string; flight_start: string | null; created_at: string | null; spend: number | null; conversions: number | null };
+    const recency = (m: MetricLite) => m.flight_start ?? m.created_at ?? "";
+    const latestByAd = new Map<string, MetricLite>();
+    for (const m of (metricRows ?? []) as MetricLite[]) {
+      const prev = latestByAd.get(m.ad_name);
+      if (!prev || recency(m) > recency(prev)) latestByAd.set(m.ad_name, m);
+    }
+    const target = defaultTargetCents();
+
+    deliverables = rows.map((r) => {
+      const m = r.creatives?.ad_name ? latestByAd.get(r.creatives.ad_name) ?? null : null;
+      const spend = m?.spend != null ? Number(m.spend) : null;
+      const conv = m?.conversions != null ? Number(m.conversions) : 0;
+      const cpt = m && spend != null && conv > 0 ? spend / conv : null;
+      return {
+        id: r.id,
+        concept_id: r.concept_id,
+        sheet_id: r.creatives?.sheet_id ?? null,
+        ad_name: r.creatives?.ad_name ?? null,
+        family: famName(r.creatives?.concept_families),
+        hook_line: r.creatives?.hook_line ?? null,
+        hook_angle: r.creatives?.hook_angle ?? null,
+        assignee_id: r.assignee_id,
+        due_date: r.due_date,
+        production_status: r.production_status,
+        has_video: videoSet.has(r.concept_id),
+        reported: m != null,
+        cpt,
+        hit: cpt == null ? null : isHit(cpt, target),
+      };
+    });
 
     // Concepts not yet in this cycle (for the picker) — scoped to the cycle's
     // own org, so staff can't accidentally schedule another client's concept
