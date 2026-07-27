@@ -50,10 +50,10 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
     .not("verdict", "is", null)
     .order("updated_at", { ascending: false })
     .order("flight_start", { ascending: false, nullsFirst: false });
-  const latestVerdict = new Map<string, "GRADUATE" | "KEEP_TESTING" | "KILL">();
+  const latestVerdict = new Map<string, "GRADUATE" | "ITERATE" | "KEEP_TESTING" | "KILL">();
   for (const m of (metricRows ?? []) as { ad_name: string; verdict: string | null }[]) {
     if (latestVerdict.has(m.ad_name)) continue; // most recently written override wins
-    if (m.verdict === "GRADUATE" || m.verdict === "KEEP_TESTING" || m.verdict === "KILL") {
+    if (m.verdict === "GRADUATE" || m.verdict === "ITERATE" || m.verdict === "KEEP_TESTING" || m.verdict === "KILL") {
       latestVerdict.set(m.ad_name, m.verdict);
     }
   }
@@ -120,7 +120,9 @@ export async function refreshAll(admin: SupabaseClient): Promise<RefreshResult> 
       });
       continue;
     }
-    if (override === "KEEP_TESTING") continue; // human says inconclusive — hold
+    // Human says inconclusive (KEEP_TESTING) or "new hook/edit, don't promote
+    // as-is" (ITERATE) — hold: neither cached as a winner nor stored as a loss.
+    if (override === "KEEP_TESTING" || override === "ITERATE") continue;
 
     // Proven loser? All three gates: mature + volume + CPT well over target.
     // (apply_bad_refresh re-enforces these in SQL; this is the primary filter.)

@@ -139,7 +139,7 @@ export async function POST(req: Request) {
       verdictSource = "auto";
     }
   } else {
-    return NextResponse.json({ error: "verdict must be GRADUATE, KEEP_TESTING, KILL, or AUTO" }, { status: 400 });
+    return NextResponse.json({ error: "verdict must be GRADUATE, ITERATE, KEEP_TESTING, KILL, or AUTO" }, { status: 400 });
   }
 
   const row = {

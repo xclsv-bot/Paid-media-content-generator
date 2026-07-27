@@ -10,7 +10,7 @@ import PromotePatternButton from "@/components/PromotePatternButton";
 import VerdictSelect from "@/components/VerdictSelect";
 import ReportImporter from "@/components/ReportImporter";
 import PeriodPicker from "@/components/PeriodPicker";
-import { type Verdict } from "@/lib/metrics/verdict";
+import { VERDICTS, VERDICT_LABEL, VERDICT_BAR, type Verdict } from "@/lib/metrics/verdict";
 
 export const dynamic = "force-dynamic";
 
@@ -35,20 +35,6 @@ type Metric = {
   scvr: number | null;
   aov: number | null;
   roas: number | null;
-};
-
-const VERDICTS = ["GRADUATE", "ITERATE", "KEEP_TESTING", "KILL"] as const;
-const VERDICT_LABEL: Record<string, string> = { GRADUATE: "Graduated", ITERATE: "Iterate", KEEP_TESTING: "Keep testing", KILL: "Stopped" };
-const VERDICT_PILL: Record<string, string> = {
-  GRADUATE: "bg-emerald-500/15 text-emerald-300",
-  ITERATE: "bg-orange-500/15 text-orange-300",
-  KEEP_TESTING: "bg-sky-500/15 text-sky-300",
-  KILL: "bg-red-500/15 text-red-300",
-};
-const VERDICT_BAR: Record<string, string> = {
-  GRADUATE: "bg-emerald-400/80",
-  KEEP_TESTING: "bg-amber-400/80",
-  KILL: "bg-red-400/70",
 };
 
 const usd = (n: number | null | undefined) =>
